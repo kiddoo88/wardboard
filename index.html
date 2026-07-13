@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ward Board — ผังเตียงผู้ป่วย</title>
+<style>
+  :root{
+    --bg:#0f172a; --panel:#1e293b; --panel2:#273449; --line:#334155;
+    --text:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8; --empty:#0b1220;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"Segoe UI","Noto Sans Thai",Tahoma,sans-serif;
+    background:var(--bg);color:var(--text);font-size:15px}
+  header{position:sticky;top:0;z-index:20;background:linear-gradient(180deg,#0f172a,#0f172aee);
+    border-bottom:1px solid var(--line);padding:10px 16px;display:flex;flex-wrap:wrap;
+    align-items:center;gap:12px}
+  header h1{font-size:18px;margin:0;font-weight:700}
+  header .sub{color:var(--muted);font-size:12px}
+  .spacer{flex:1}
+  button{font-family:inherit;font-size:13px;border:1px solid var(--line);background:var(--panel2);
+    color:var(--text);padding:7px 12px;border-radius:8px;cursor:pointer}
+  button:hover{background:#31435f}
+  button.primary{background:var(--accent);color:#062033;border-color:var(--accent);font-weight:600}
+  button.ghost{background:transparent}
+  button.sm{padding:4px 8px;font-size:12px}
+  .wrap{max-width:1200px;margin:0 auto;padding:14px 16px 60px}
+
+  /* doctor brush bar */
+  .docs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px}
+  .doc-chip{display:flex;align-items:center;gap:7px;padding:6px 11px;border-radius:999px;
+    border:2px solid transparent;background:var(--panel);cursor:pointer;user-select:none}
+  .doc-chip .dot{width:14px;height:14px;border-radius:50%;flex:none}
+  .doc-chip.active{border-color:#fff;box-shadow:0 0 0 2px var(--accent)}
+  .doc-chip .cnt{font-size:11px;color:var(--muted);min-width:14px;text-align:right}
+  .sai-label{font-size:11px;color:var(--muted);align-self:center;margin:0 2px 0 6px;font-weight:700}
+  .brush-hint{font-size:12px;color:var(--muted);margin:2px 0 12px}
+  .brush-hint b{color:var(--accent)}
+
+  /* summary */
+  .summary{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;min-width:120px}
+  .card .k{font-size:11px;color:var(--muted)}
+  .card .v{font-size:22px;font-weight:700;line-height:1.1}
+  .card small{font-size:11px;color:var(--muted);font-weight:400}
+
+  /* ward map */
+  .section{margin-bottom:18px}
+  .section-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .section-head .title{font-weight:700;font-size:14px}
+  .section-head .tag{font-size:11px;color:var(--muted);border:1px solid var(--line);
+    border-radius:6px;padding:1px 7px}
+  .beds{display:grid;gap:8px}
+  .beds.block{grid-template-columns:repeat(4,1fr)}
+  .beds.private{grid-template-columns:repeat(2,1fr)}
+  .beds.isolation{grid-template-columns:repeat(2,1fr)}
+  .beds.corridor{grid-template-columns:repeat(6,1fr)}
+  @media(max-width:720px){
+    .beds.block{grid-template-columns:repeat(2,1fr)}
+    .beds.corridor{grid-template-columns:repeat(3,1fr)}
+  }
+  .bed{position:relative;border-radius:10px;border:1px solid var(--line);background:var(--empty);
+    min-height:74px;padding:8px 9px;cursor:pointer;overflow:hidden;transition:transform .05s}
+  .bed:active{transform:scale(.98)}
+  .bed .lbl{font-size:11px;font-weight:700;opacity:.85}
+  .bed .doc{font-size:15px;font-weight:700;margin-top:3px;line-height:1.15}
+  .bed .pt{font-size:12px;opacity:.9;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bed .note{font-size:11px;opacity:.75;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bed.empty .doc{color:var(--muted);font-weight:500;font-size:13px}
+  .bed .i{position:absolute;top:5px;right:6px;font-size:11px;opacity:.6;
+    background:rgba(0,0,0,.25);border-radius:6px;padding:1px 5px}
+  .bed.edit-x{position:absolute;top:5px;right:6px}
+
+  /* edit mode add/remove */
+  .sec-tools{display:none;gap:6px;margin-left:auto}
+  body.editing .sec-tools{display:flex}
+  body.editing .bed{outline:1px dashed #64748b}
+  .rm-bed{position:absolute;top:4px;right:5px;background:#dc2626;color:#fff;border:none;
+    border-radius:6px;width:20px;height:20px;font-size:13px;line-height:1;cursor:pointer;display:none;z-index:2}
+  body.editing .rm-bed{display:block}
+
+  /* modal */
+  .overlay{position:fixed;inset:0;background:#000a;display:none;align-items:center;
+    justify-content:center;z-index:50;padding:16px}
+  .overlay.open{display:flex}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+    width:100%;max-width:420px;padding:18px;max-height:90vh;overflow:auto}
+  .modal h3{margin:0 0 14px}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+  .field input,.field select{width:100%;padding:9px 10px;border-radius:9px;
+    border:1px solid var(--line);background:var(--panel2);color:var(--text);font-size:14px}
+  .doc-pick{display:flex;flex-wrap:wrap;gap:7px}
+  .doc-pick .p{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;
+    border:2px solid var(--line);cursor:pointer;font-size:13px}
+  .doc-pick .p.sel{border-color:#fff}
+  .doc-pick .p .dot{width:12px;height:12px;border-radius:50%}
+  .modal-actions{display:flex;gap:8px;margin-top:16px}
+  .modal-actions .spacer{flex:1}
+  .mgr-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .mgr-row input[type=text]{flex:1;padding:7px 9px;border-radius:8px;border:1px solid var(--line);
+    background:var(--panel2);color:var(--text)}
+  .mgr-row input[type=color]{width:38px;height:34px;border:none;background:none;padding:0;border-radius:6px}
+  .mgr-row .sai{font-size:11px;color:var(--muted);width:44px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>🛏️ Ward Board</h1>
+    <div class="sub">ผังเตียงผู้ป่วย · แตะเตียงเพื่อลงแพทย์/ผู้ป่วย</div>
+  </div>
+  <div class="spacer"></div>
+  <button class="ghost sm" id="btnDocs">👤 จัดการแพทย์/สี</button>
+  <button class="ghost sm" id="btnEdit">✏️ แก้ไขผังเตียง</button>
+  <button class="ghost sm" id="btnClear">🧹 ล้างทั้งหมด</button>
+  <button class="ghost sm" id="btnExport">⬇ Export</button>
+</header>
+
+<div class="wrap">
+  <div class="docs" id="docs"></div>
+  <div class="brush-hint" id="brushHint"></div>
+
+  <div class="summary" id="summary"></div>
+
+  <div id="map"></div>
+</div>
+
+<!-- Bed modal -->
+<div class="overlay" id="bedOverlay">
+  <div class="modal">
+    <h3 id="bedTitle">เตียง</h3>
+    <div class="field" id="labelField">
+      <label>ชื่อเตียง</label>
+      <input type="text" id="bedLabel">
+    </div>
+    <div class="field">
+      <label>แพทย์เจ้าของไข้</label>
+      <div class="doc-pick" id="bedDocPick"></div>
+    </div>
+    <div class="field">
+      <label>ชื่อผู้ป่วย</label>
+      <input type="text" id="bedPatient" placeholder="เว้นว่างได้">
+    </div>
+    <div class="field">
+      <label>HN / หมายเหตุ</label>
+      <input type="text" id="bedNote" placeholder="เช่น Dx, HN, ระวังพิเศษ">
+    </div>
+    <div class="modal-actions">
+      <button id="bedClear">ล้างเตียงนี้</button>
+      <div class="spacer"></div>
+      <button id="bedCancel">ยกเลิก</button>
+      <button class="primary" id="bedSave">บันทึก</button>
+    </div>
+  </div>
+</div>
+
+<!-- Doctor manager modal -->
+<div class="overlay" id="docOverlay">
+  <div class="modal">
+    <h3>จัดการแพทย์ · สี · สาย</h3>
+    <div id="docMgr"></div>
+    <div class="modal-actions">
+      <div class="spacer"></div>
+      <button id="docClose" class="primary">เสร็จ</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const LS_KEY = "wardBoardV1";
+
+const DEFAULT_DOCTORS = [
+  {id:"d1", name:"พรหมพร",     sai:"A", color:"#2563eb"},
+  {id:"d2", name:"วิชญะ",       sai:"A", color:"#0891b2"},
+  {id:"d3", name:"ณัฐพร",       sai:"A", color:"#0d9488"},
+  {id:"d4", name:"พิชชา",       sai:"A", color:"#16a34a"},
+  {id:"d5", name:"ก้องเกียรติ", sai:"A", color:"#4f46e5"},
+  {id:"d6", name:"ธีรินทร์",    sai:"B", color:"#dc2626"},
+  {id:"d7", name:"จิระ",         sai:"B", color:"#ea580c"},
+  {id:"d8", name:"พงษ์พิริยะ",  sai:"B", color:"#d97706"},
+  {id:"d9", name:"ศวิษฐ์",       sai:"B", color:"#db2777"},
+];
+
+function mkBeds(prefix, n){
+  const a=[];
+  for(let i=1;i<=n;i++) a.push({id:prefix+"-"+i, label:String(i), doctorId:null, patient:"", note:""});
+  return a;
+}
+function defaultState(){
+  return {
+    doctors: JSON.parse(JSON.stringify(DEFAULT_DOCTORS)),
+    sections: [
+      {id:"b1", name:"ลอค 1", type:"block",     beds:mkBeds("b1",8)},
+      {id:"b2", name:"ลอค 2", type:"block",     beds:mkBeds("b2",8)},
+      {id:"b3", name:"ลอค 3", type:"block",     beds:mkBeds("b3",8)},
+      {id:"s1", name:"ห้องพิเศษ 1", type:"private", beds:[
+        {id:"s1-1",label:"เตียง 1",doctorId:null,patient:"",note:""},
+        {id:"s1-2",label:"เตียง 2",doctorId:null,patient:"",note:""}]},
+      {id:"s2", name:"ห้องพิเศษ 2", type:"private", beds:[
+        {id:"s2-1",label:"เตียง 1",doctorId:null,patient:"",note:""},
+        {id:"s2-2",label:"เตียง 2",doctorId:null,patient:"",note:""}]},
+      {id:"s3", name:"ห้องพิเศษ 3", type:"private", beds:[
+        {id:"s3-1",label:"เตียง 1",doctorId:null,patient:"",note:""},
+        {id:"s3-2",label:"เตียง 2",doctorId:null,patient:"",note:""}]},
+      {id:"iso", name:"ห้องแยก", type:"isolation", beds:[
+        {id:"iso-1",label:"เตียง 1",doctorId:null,patient:"",note:""},
+        {id:"iso-2",label:"เตียง 2",doctorId:null,patient:"",note:""}]},
+      {id:"cor", name:"เตียงทางเดิน", type:"corridor", beds:mkBeds("cor",6)},
+    ]
+  };
+}
+
+let state, activeDoc=null, curBed=null;
+
+function load(){
+  try{ const s=JSON.parse(localStorage.getItem(LS_KEY)); if(s&&s.doctors&&s.sections) return s; }catch(e){}
+  return defaultState();
+}
+function save(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){} }
+
+function docById(id){ return state.doctors.find(d=>d.id===id)||null; }
+function contrast(hex){
+  const c=hex.replace('#',''); const r=parseInt(c.substr(0,2),16),g=parseInt(c.substr(2,2),16),b=parseInt(c.substr(4,2),16);
+  return (r*299+g*587+b*114)/1000 > 150 ? "#0b1220" : "#ffffff";
+}
+function allBeds(){ return state.sections.flatMap(s=>s.beds); }
+
+/* ---------- render doctors brush ---------- */
+function renderDocs(){
+  const counts={}; allBeds().forEach(b=>{ if(b.doctorId) counts[b.doctorId]=(counts[b.doctorId]||0)+1; });
+  const el=document.getElementById("docs"); el.innerHTML="";
+  ["A","B"].forEach(sai=>{
+    const lab=document.createElement("span"); lab.className="sai-label"; lab.textContent="สาย "+sai; el.appendChild(lab);
+    state.doctors.filter(d=>d.sai===sai).forEach(d=>{
+      const c=document.createElement("div");
+      c.className="doc-chip"+(activeDoc===d.id?" active":"");
+      c.innerHTML=`<span class="dot" style="background:${d.color}"></span>${d.name}<span class="cnt">${counts[d.id]||0}</span>`;
+      c.onclick=()=>{ activeDoc = activeDoc===d.id?null:d.id; renderDocs(); renderHint(); };
+      el.appendChild(c);
+    });
+  });
+}
+function renderHint(){
+  const h=document.getElementById("brushHint");
+  if(activeDoc){ const d=docById(activeDoc);
+    h.innerHTML=`โหมดลงเวรเร็ว: กำลังเลือก <b style="color:${d.color}">${d.name}</b> — แตะเตียงเพื่อลงชื่อทันที (แตะซ้ำเพื่อเอาออก) · แตะไอคอน ✎ เพื่อใส่ชื่อผู้ป่วย`;
+  } else {
+    h.innerHTML=`แตะที่แพทย์ด้านบนเพื่อ "ลงเวรเร็ว" แล้วแตะเตียง · หรือแตะเตียงเพื่อเปิดรายละเอียด`;
+  }
+}
+
+/* ---------- render summary ---------- */
+function renderSummary(){
+  const beds=allBeds(); const total=beds.length;
+  let occ=0, saiA=0, saiB=0;
+  beds.forEach(b=>{ if(b.doctorId){ occ++; const d=docById(b.doctorId); if(d){ if(d.sai==="A")saiA++; else saiB++; } } });
+  const empty=total-occ;
+  const el=document.getElementById("summary"); el.innerHTML="";
+  const cards=[
+    {k:"เตียงทั้งหมด", v:total, s:""},
+    {k:"มีผู้ป่วย", v:occ, s:`ว่าง ${empty}`},
+    {k:"สาย A", v:saiA, s:"เตียง", col:"#2563eb"},
+    {k:"สาย B", v:saiB, s:"เตียง", col:"#dc2626"},
+  ];
+  cards.forEach(c=>{
+    const d=document.createElement("div"); d.className="card";
+    d.innerHTML=`<div class="k">${c.k}</div><div class="v" style="${c.col?'color:'+c.col:''}">${c.v} <small>${c.s}</small></div>`;
+    el.appendChild(d);
+  });
+}
+
+/* ---------- render map ---------- */
+function renderMap(){
+  const map=document.getElementById("map"); map.innerHTML="";
+  state.sections.forEach(sec=>{
+    const wrap=document.createElement("div"); wrap.className="section";
+    const occ=sec.beds.filter(b=>b.doctorId).length;
+    const head=document.createElement("div"); head.className="section-head";
+    head.innerHTML=`<span class="title">${sec.name}</span>
+      <span class="tag">${occ}/${sec.beds.length} เตียง</span>`;
+    const tools=document.createElement("div"); tools.className="sec-tools";
+    const addb=document.createElement("button"); addb.className="sm"; addb.textContent="+ เตียง";
+    addb.onclick=()=>{ const n=sec.beds.length+1;
+      sec.beds.push({id:sec.id+"-"+Date.now(),label:String(n),doctorId:null,patient:"",note:""}); save(); renderAll(); };
+    tools.appendChild(addb);
+    head.appendChild(tools);
+    wrap.appendChild(head);
+
+    const grid=document.createElement("div"); grid.className="beds "+sec.type;
+    sec.beds.forEach(bed=>{
+      const d=bed.doctorId?docById(bed.doctorId):null;
+      const cell=document.createElement("div");
+      cell.className="bed"+(d?"":" empty");
+      if(d){ cell.style.background=d.color; cell.style.color=contrast(d.color); cell.style.borderColor=d.color; }
+      cell.innerHTML=`
+        <div class="lbl">${bed.label}</div>
+        <div class="doc">${d?d.name:"— ว่าง —"}</div>
+        ${bed.patient?`<div class="pt">${escapeHtml(bed.patient)}</div>`:""}
+        ${bed.note?`<div class="note">${escapeHtml(bed.note)}</div>`:""}
+        <div class="i">✎</div>
+        <button class="rm-bed" title="ลบเตียง">×</button>`;
+      // remove bed (edit mode)
+      cell.querySelector(".rm-bed").onclick=(e)=>{ e.stopPropagation();
+        if(confirm("ลบ "+sec.name+" · "+bed.label+" ?")){ sec.beds=sec.beds.filter(x=>x.id!==bed.id); save(); renderAll(); } };
+      // info icon -> always open modal
+      cell.querySelector(".i").onclick=(e)=>{ e.stopPropagation(); openBed(sec,bed); };
+      // cell click
+      cell.onclick=()=>{
+        if(document.body.classList.contains("editing")){ openBed(sec,bed); return; }
+        if(activeDoc){ bed.doctorId = bed.doctorId===activeDoc?null:activeDoc; save(); renderAll(); }
+        else openBed(sec,bed);
+      };
+      grid.appendChild(cell);
+    });
+    wrap.appendChild(grid);
+    map.appendChild(wrap);
+  });
+}
+
+function escapeHtml(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+/* ---------- bed modal ---------- */
+function openBed(sec,bed){
+  curBed={sec,bed};
+  document.getElementById("bedTitle").textContent=sec.name+" · เตียง "+bed.label;
+  document.getElementById("bedLabel").value=bed.label;
+  document.getElementById("bedPatient").value=bed.patient||"";
+  document.getElementById("bedNote").value=bed.note||"";
+  const pick=document.getElementById("bedDocPick"); pick.innerHTML="";
+  const none=document.createElement("div"); none.className="p"+(bed.doctorId?"":" sel");
+  none.dataset.id=""; none.innerHTML=`<span class="dot" style="background:#475569"></span>ว่าง`;
+  none.onclick=()=>selDoc(""); pick.appendChild(none);
+  state.doctors.forEach(d=>{
+    const p=document.createElement("div"); p.className="p"+(bed.doctorId===d.id?" sel":"");
+    p.dataset.id=d.id; p.innerHTML=`<span class="dot" style="background:${d.color}"></span>${d.name}`;
+    p.onclick=()=>selDoc(d.id); pick.appendChild(p);
+  });
+  document.getElementById("bedOverlay").classList.add("open");
+}
+function selDoc(id){
+  document.querySelectorAll("#bedDocPick .p").forEach(p=>p.classList.toggle("sel",p.dataset.id===id));
+}
+function closeBed(){ document.getElementById("bedOverlay").classList.remove("open"); curBed=null; }
+
+document.getElementById("bedSave").onclick=()=>{
+  if(!curBed) return;
+  const sel=document.querySelector("#bedDocPick .p.sel");
+  curBed.bed.doctorId = sel && sel.dataset.id ? sel.dataset.id : null;
+  curBed.bed.label=document.getElementById("bedLabel").value.trim()||curBed.bed.label;
+  curBed.bed.patient=document.getElementById("bedPatient").value.trim();
+  curBed.bed.note=document.getElementById("bedNote").value.trim();
+  save(); closeBed(); renderAll();
+};
+document.getElementById("bedClear").onclick=()=>{
+  if(!curBed) return;
+  curBed.bed.doctorId=null; curBed.bed.patient=""; curBed.bed.note="";
+  save(); closeBed(); renderAll();
+};
+document.getElementById("bedCancel").onclick=closeBed;
+document.getElementById("bedOverlay").onclick=(e)=>{ if(e.target.id==="bedOverlay") closeBed(); };
+
+/* ---------- doctor manager ---------- */
+function openDocMgr(){
+  const box=document.getElementById("docMgr"); box.innerHTML="";
+  state.doctors.forEach(d=>{
+    const row=document.createElement("div"); row.className="mgr-row";
+    row.innerHTML=`<span class="sai">สาย ${d.sai}</span>
+      <input type="color" value="${d.color}">
+      <input type="text" value="${escapeHtml(d.name)}">`;
+    const [color,name]=row.querySelectorAll("input");
+    color.oninput=()=>{ d.color=color.value; save(); renderDocs(); renderMap(); };
+    name.oninput=()=>{ d.name=name.value; save(); renderDocs(); renderMap(); };
+    box.appendChild(row);
+  });
+  document.getElementById("docOverlay").classList.add("open");
+}
+document.getElementById("btnDocs").onclick=openDocMgr;
+document.getElementById("docClose").onclick=()=>document.getElementById("docOverlay").classList.remove("open");
+document.getElementById("docOverlay").onclick=(e)=>{ if(e.target.id==="docOverlay") e.currentTarget.classList.remove("open"); };
+
+/* ---------- header buttons ---------- */
+document.getElementById("btnEdit").onclick=()=>{
+  document.body.classList.toggle("editing");
+  const on=document.body.classList.contains("editing");
+  document.getElementById("btnEdit").textContent= on?"✓ เสร็จการแก้ไข":"✏️ แก้ไขผังเตียง";
+};
+document.getElementById("btnClear").onclick=()=>{
+  if(confirm("ล้างการลงแพทย์/ผู้ป่วยทุกเตียง? (โครงสร้างเตียงและสีคงเดิม)")){
+    allBeds().forEach(b=>{ b.doctorId=null; b.patient=""; b.note=""; }); save(); renderAll();
+  }
+};
+document.getElementById("btnExport").onclick=()=>{
+  const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+  a.download="ward-board-"+new Date().toISOString().slice(0,10)+".json"; a.click();
+};
+
+/* ---------- init ---------- */
+function renderAll(){ renderDocs(); renderHint(); renderSummary(); renderMap(); }
+state=load();
+renderAll();
+</script>
+</body>
+</html>

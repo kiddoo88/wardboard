@@ -3,19 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Ward Board — ผังเตียงผู้ป่วย</title>
+<title>Ward Board — ผังเตียง & รายงาน Product</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --bg:#0f172a; --panel:#1e293b; --panel2:#273449; --line:#334155;
-    --text:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8; --empty:#0b1220;
+    --text:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8; --empty:#0b1220; --good:#22c55e; --warn:#f59e0b;
   }
   *{box-sizing:border-box}
   body{margin:0;font-family:-apple-system,"Segoe UI","Noto Sans Thai",Tahoma,sans-serif;
     background:var(--bg);color:var(--text);font-size:15px}
   header{position:sticky;top:0;z-index:20;background:linear-gradient(180deg,#0f172a,#0f172aee);
-    border-bottom:1px solid var(--line);padding:10px 16px;display:flex;flex-wrap:wrap;
-    align-items:center;gap:12px}
-  header h1{font-size:18px;margin:0;font-weight:700}
+    border-bottom:1px solid var(--line);padding:8px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+  header h1{font-size:17px;margin:0;font-weight:700}
   header .sub{color:var(--muted);font-size:12px}
   .spacer{flex:1}
   button{font-family:inherit;font-size:13px;border:1px solid var(--line);background:var(--panel2);
@@ -24,8 +24,28 @@
   button.primary{background:var(--accent);color:#062033;border-color:var(--accent);font-weight:600}
   button.ghost{background:transparent}
   button.sm{padding:4px 8px;font-size:12px}
-  .wrap{max-width:1200px;margin:0 auto;padding:14px 16px 60px}
+  .tabs{display:flex;gap:6px;padding:8px 16px 0;max-width:1200px;margin:0 auto}
+  .tab{padding:8px 16px;border-radius:10px 10px 0 0;border:1px solid var(--line);border-bottom:none;
+    background:var(--panel);cursor:pointer;font-weight:600;color:var(--muted)}
+  .tab.active{background:var(--panel2);color:var(--text)}
+  .wrap{max-width:1200px;margin:0 auto;padding:14px 16px 70px}
+  .view{display:none} .view.active{display:block}
 
+  /* current shift bar */
+  .shiftbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;background:var(--panel);
+    border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-bottom:14px}
+  .shiftbar b{color:var(--accent)}
+  .shiftbar input,.shiftbar select{padding:7px 9px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-size:14px}
+  .shiftbar .cnt{font-size:12px;color:var(--muted)}
+  /* event action boxes in bed modal */
+  #admitBox,#dischargeBox{border:1px dashed var(--line);border-radius:10px;padding:10px;margin-bottom:12px}
+  #admitBox label,#dischargeBox label{font-weight:700;color:var(--text)}
+  .seg .o.sel{border-color:#fff;background:var(--panel2)}
+  .evlog{font-size:12px;max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:10px}
+  .evlog .row{display:flex;align-items:center;gap:8px;padding:5px 8px;border-bottom:1px solid var(--line)}
+  .evlog .row:last-child{border-bottom:none}
+  .evlog .t{font-weight:700;padding:1px 7px;border-radius:6px;font-size:11px}
+  .ev-in{background:#14321f;color:#86efac} .ev-out{background:#3a1414;color:#fca5a5} .ev-or{background:#1e293b;color:#c4b5fd}
   /* doctor brush bar */
   .docs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px}
   .doc-chip{display:flex;align-items:center;gap:7px;padding:6px 11px;border-radius:999px;
@@ -37,9 +57,9 @@
   .brush-hint{font-size:12px;color:var(--muted);margin:2px 0 12px}
   .brush-hint b{color:var(--accent)}
 
-  /* summary */
+  /* summary cards */
   .summary{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;min-width:120px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;min-width:96px}
   .card .k{font-size:11px;color:var(--muted)}
   .card .v{font-size:22px;font-weight:700;line-height:1.1}
   .card small{font-size:11px;color:var(--muted);font-weight:400}
@@ -48,358 +68,707 @@
   .section{margin-bottom:18px}
   .section-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
   .section-head .title{font-weight:700;font-size:14px}
-  .section-head .tag{font-size:11px;color:var(--muted);border:1px solid var(--line);
-    border-radius:6px;padding:1px 7px}
+  .section-head .tag{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:1px 7px}
   .beds{display:grid;gap:8px}
   .beds.block{grid-template-columns:repeat(4,1fr)}
-  .beds.private{grid-template-columns:repeat(2,1fr)}
-  .beds.isolation{grid-template-columns:repeat(2,1fr)}
+  .beds.private,.beds.isolation{grid-template-columns:repeat(2,1fr)}
   .beds.corridor{grid-template-columns:repeat(6,1fr)}
   @media(max-width:720px){
     .beds.block{grid-template-columns:repeat(2,1fr)}
     .beds.corridor{grid-template-columns:repeat(3,1fr)}
   }
   .bed{position:relative;border-radius:10px;border:1px solid var(--line);background:var(--empty);
-    min-height:74px;padding:8px 9px;cursor:pointer;overflow:hidden;transition:transform .05s}
+    min-height:78px;padding:8px 9px;cursor:pointer;overflow:hidden;transition:transform .05s}
   .bed:active{transform:scale(.98)}
   .bed .lbl{font-size:11px;font-weight:700;opacity:.85}
   .bed .doc{font-size:15px;font-weight:700;margin-top:3px;line-height:1.15}
-  .bed .pt{font-size:12px;opacity:.9;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bed .pt{font-size:12px;opacity:.92;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .bed .note{font-size:11px;opacity:.75;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .bed.empty .doc{color:var(--muted);font-weight:500;font-size:13px}
-  .bed .i{position:absolute;top:5px;right:6px;font-size:11px;opacity:.6;
-    background:rgba(0,0,0,.25);border-radius:6px;padding:1px 5px}
-  .bed.edit-x{position:absolute;top:5px;right:6px}
-
-  /* edit mode add/remove */
+  .bed .badges{position:absolute;top:5px;right:6px;display:flex;gap:4px;align-items:center}
+  .bed .acu{font-size:11px;font-weight:800;background:rgba(0,0,0,.35);border-radius:6px;padding:1px 6px}
+  .bed .iso{font-size:10px;font-weight:700;background:#7c2d12;color:#fed7aa;border-radius:6px;padding:1px 5px}
+  .bed .i{font-size:11px;opacity:.7;background:rgba(0,0,0,.25);border-radius:6px;padding:1px 5px}
+  .rm-bed{position:absolute;bottom:5px;right:5px;background:#dc2626;color:#fff;border:none;
+    border-radius:6px;width:22px;height:22px;font-size:14px;line-height:1;cursor:pointer;display:none;z-index:2}
+  body.editing .rm-bed{display:block}
+  body.editing .bed{outline:1px dashed #64748b}
   .sec-tools{display:none;gap:6px;margin-left:auto}
   body.editing .sec-tools{display:flex}
-  body.editing .bed{outline:1px dashed #64748b}
-  .rm-bed{position:absolute;top:4px;right:5px;background:#dc2626;color:#fff;border:none;
-    border-radius:6px;width:20px;height:20px;font-size:13px;line-height:1;cursor:pointer;display:none;z-index:2}
-  body.editing .rm-bed{display:block}
 
   /* modal */
-  .overlay{position:fixed;inset:0;background:#000a;display:none;align-items:center;
-    justify-content:center;z-index:50;padding:16px}
+  .overlay{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:50;padding:16px}
   .overlay.open{display:flex}
-  .modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;
-    width:100%;max-width:420px;padding:18px;max-height:90vh;overflow:auto}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;width:100%;max-width:440px;padding:18px;max-height:92vh;overflow:auto}
   .modal h3{margin:0 0 14px}
   .field{margin-bottom:12px}
   .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
-  .field input,.field select{width:100%;padding:9px 10px;border-radius:9px;
-    border:1px solid var(--line);background:var(--panel2);color:var(--text);font-size:14px}
+  .field input,.field select{width:100%;padding:9px 10px;border-radius:9px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-size:14px}
   .doc-pick{display:flex;flex-wrap:wrap;gap:7px}
-  .doc-pick .p{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;
-    border:2px solid var(--line);cursor:pointer;font-size:13px}
+  .doc-pick .p{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:2px solid var(--line);cursor:pointer;font-size:13px}
   .doc-pick .p.sel{border-color:#fff}
   .doc-pick .p .dot{width:12px;height:12px;border-radius:50%}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg .o{padding:7px 13px;border:2px solid var(--line);border-radius:9px;cursor:pointer;font-weight:700}
+  .seg .o.sel{border-color:#fff;background:var(--panel2)}
+  .toggle{display:flex;align-items:center;gap:8px}
   .modal-actions{display:flex;gap:8px;margin-top:16px}
-  .modal-actions .spacer{flex:1}
   .mgr-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
-  .mgr-row input[type=text]{flex:1;padding:7px 9px;border-radius:8px;border:1px solid var(--line);
-    background:var(--panel2);color:var(--text)}
+  .mgr-row input[type=text]{flex:1;padding:7px 9px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--text)}
   .mgr-row input[type=color]{width:38px;height:34px;border:none;background:none;padding:0;border-radius:6px}
   .mgr-row .sai{font-size:11px;color:var(--muted);width:44px}
+
+  /* report */
+  .rep-top{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:14px}
+  .rep-top .field{margin:0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px 14px}
+  @media(max-width:640px){.grid3{grid-template-columns:1fr 1fr}}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+  .box h4{margin:0 0 10px;font-size:14px}
+  .inp{display:flex;flex-direction:column;gap:3px}
+  .inp label{font-size:11px;color:var(--muted)}
+  .inp input{padding:8px 9px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-size:14px;width:100%}
+  .inp.auto input{background:#14212f;border-color:#1f3a52;color:#7dd3fc}
+  .auto-tag{font-size:10px;color:#7dd3fc}
+  .calc-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:4px}
+  .calc{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 14px;min-width:110px}
+  .calc .k{font-size:11px;color:var(--muted)}
+  .calc .v{font-size:20px;font-weight:800}
+  table.hist{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}
+  table.hist th,table.hist td{border:1px solid var(--line);padding:4px 6px;text-align:center;white-space:nowrap}
+  table.hist th{background:var(--panel2);position:sticky;top:0}
+  .hist-wrap{overflow:auto;max-height:340px;border:1px solid var(--line);border-radius:10px}
+  .pill{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:700}
 </style>
 </head>
 <body>
 <header>
   <div>
     <h1>🛏️ Ward Board</h1>
-    <div class="sub">ผังเตียงผู้ป่วย · แตะเตียงเพื่อลงแพทย์/ผู้ป่วย</div>
+    <div class="sub">ผังเตียง + รายงานยอดคนไข้ & Product รายเวร</div>
   </div>
   <div class="spacer"></div>
-  <button class="ghost sm" id="btnDocs">👤 จัดการแพทย์/สี</button>
+  <button class="ghost sm" id="btnDocs">👤 แพทย์/สี</button>
   <button class="ghost sm" id="btnEdit">✏️ แก้ไขผังเตียง</button>
-  <button class="ghost sm" id="btnClear">🧹 ล้างทั้งหมด</button>
-  <button class="ghost sm" id="btnExport">⬇ Export</button>
+  <button class="ghost sm" id="btnBackup">💾 สำรอง/กู้คืน</button>
 </header>
 
+<div class="tabs">
+  <div class="tab active" data-view="board">ผังเตียง</div>
+  <div class="tab" data-view="report">รายงานเวร</div>
+</div>
+
 <div class="wrap">
-  <div class="docs" id="docs"></div>
-  <div class="brush-hint" id="brushHint"></div>
+  <!-- ============ BOARD ============ -->
+  <div class="view active" id="view-board">
+    <div class="shiftbar">
+      <span>🕒 เวรที่กำลังบันทึก:</span>
+      <input type="date" id="curDate">
+      <select id="curShift"><option value="ด">ด (ดึก)</option><option value="ช">ช (เช้า)</option><option value="บ">บ (บ่าย)</option></select>
+      <span class="cnt" id="curEventCount"></span>
+      <span class="cnt" style="margin-left:auto">รับ/จำหน่าย/OR ที่ทำในเตียง จะถูกนับเข้ารายงานเวรนี้อัตโนมัติ</span>
+    </div>
+    <div class="docs" id="docs"></div>
+    <div class="brush-hint" id="brushHint"></div>
+    <div class="summary" id="summary"></div>
+    <div id="map"></div>
+  </div>
 
-  <div class="summary" id="summary"></div>
+  <!-- ============ REPORT ============ -->
+  <div class="view" id="view-report">
+    <div class="rep-top">
+      <div class="field"><label>วันที่</label><input type="date" id="repDate"></div>
+      <div class="field"><label>เวร</label>
+        <select id="repShift"><option value="ด">ด (ดึก)</option><option value="ช">ช (เช้า)</option><option value="บ">บ (บ่าย)</option></select>
+      </div>
+      <button class="sm" id="repFromBoard">↻ ดึงค่าจากผังเตียง</button>
+      <div class="spacer"></div>
+      <button class="sm" id="repExportDay">⬇ Export วันนี้ (Excel)</button>
+      <button class="sm" id="repExportAll">⬇ Export ทั้งหมด</button>
+    </div>
 
-  <div id="map"></div>
+    <div class="box">
+      <h4>ประเภทผู้ป่วย & แยก <span class="auto-tag">(ดึงจากผังเตียงอัตโนมัติ · แก้ทับได้)</span></h4>
+      <div class="grid3" id="acuityInputs"></div>
+      <div class="grid3" style="margin-top:10px">
+        <div class="inp auto"><label>แยก / P<span class="auto-tag"> auto</span></label><input type="number" id="f_iso" step="1"></div>
+      </div>
+      <div id="repCheck" class="auto-tag" style="margin-top:10px"></div>
+    </div>
+
+    <div class="box">
+      <h4>การเคลื่อนไหวผู้ป่วยในเวร <span class="auto-tag">(นับจากเหตุการณ์ที่ทำในผังเตียงอัตโนมัติ · แก้ทับได้)</span></h4>
+      <div class="grid3">
+        <div class="inp"><label>ยอดยกมา (C)</label><input type="number" id="f_carry" step="1"></div>
+        <div class="inp"><label>รับใหม่ (D)</label><input type="number" id="f_new" step="1"></div>
+        <div class="inp"><label>รับย้าย (E)</label><input type="number" id="f_tin" step="1"></div>
+        <div class="inp"><label>รับ Refer (F)</label><input type="number" id="f_rin" step="1"></div>
+        <div class="inp"><label>แพทย์อนุญาต (G)</label><input type="number" id="f_dc" step="1"></div>
+        <div class="inp"><label>Refer back (H)</label><input type="number" id="f_rb" step="1"></div>
+        <div class="inp"><label>Refer out (I)</label><input type="number" id="f_ro" step="1"></div>
+        <div class="inp"><label>Dead (J)</label><input type="number" id="f_dead" step="1"></div>
+        <div class="inp"><label>ย้าย ICU (K)</label><input type="number" id="f_icu" step="1"></div>
+        <div class="inp"><label>ย้ายแผนก/พิเศษ (L)</label><input type="number" id="f_dept" step="1"></div>
+        <div class="inp"><label>OR (M)</label><input type="number" id="f_or" step="1"></div>
+        <div class="inp"><label>อื่นๆ หนี/ปฏิเสธ (N)</label><input type="number" id="f_other" step="1"></div>
+        <div class="inp"><label>ชม.บริหาร (AB)</label><input type="number" id="f_admin" step="0.5"></div>
+      </div>
+      <div class="calc-row">
+        <div class="calc"><div class="k">สามัญคงเหลือ (O)</div><div class="v" id="c_O">0</div></div>
+        <div class="calc"><div class="k">รวม (Q)</div><div class="v" id="c_Q">0</div></div>
+        <div class="calc"><div class="k">ชม.ที่ผป.ต้องการ (AC)</div><div class="v" id="c_AC">0</div></div>
+        <div class="calc"><div class="k">Product (AD)</div><div class="v" id="c_AD">0</div></div>
+      </div>
+      <div class="modal-actions">
+        <button id="repClear" class="ghost">ล้างฟอร์ม</button>
+        <div class="spacer"></div>
+        <button class="primary" id="repSave">💾 บันทึกเวรนี้</button>
+      </div>
+    </div>
+
+    <div class="box">
+      <h4>เหตุการณ์รับ/จำหน่าย/OR ในเวรนี้ <span class="auto-tag" id="evCount"></span></h4>
+      <div class="evlog" id="evLog"></div>
+    </div>
+
+    <div class="box">
+      <h4>ประวัติที่บันทึกไว้ <span class="auto-tag" id="histCount"></span></h4>
+      <div class="hist-wrap"><table class="hist" id="histTable"></table></div>
+    </div>
+  </div>
 </div>
 
 <!-- Bed modal -->
 <div class="overlay" id="bedOverlay">
   <div class="modal">
     <h3 id="bedTitle">เตียง</h3>
-    <div class="field" id="labelField">
-      <label>ชื่อเตียง</label>
-      <input type="text" id="bedLabel">
+    <div class="field"><label>ย้ายผู้ป่วยไปเตียงเลขที่ <span class="auto-tag">(เลขเตียงคงที่ตามตำแหน่งจริง · พิมพ์เลขปลายทางเพื่อย้าย/สลับ)</span></label><input type="text" id="bedLabel"></div>
+    <div class="field"><label>แพทย์เจ้าของไข้</label><div class="doc-pick" id="bedDocPick"></div></div>
+    <div class="field"><label>ชื่อผู้ป่วย</label><input type="text" id="bedPatient" placeholder="เว้นว่าง = เตียงว่าง"></div>
+    <div class="field"><label>HN / หมายเหตุ</label><input type="text" id="bedNote" placeholder="เช่น Dx, HN"></div>
+    <div class="field"><label>ประเภทผู้ป่วย (acuity)</label>
+      <div class="seg" id="bedAcu">
+        <div class="o" data-a="0">–</div><div class="o" data-a="1">1</div><div class="o" data-a="2">2</div>
+        <div class="o" data-a="3">3</div><div class="o" data-a="4">4</div><div class="o" data-a="5">5</div>
+      </div>
     </div>
-    <div class="field">
-      <label>แพทย์เจ้าของไข้</label>
-      <div class="doc-pick" id="bedDocPick"></div>
+    <div class="field toggle"><input type="checkbox" id="bedIso" style="width:auto"><label style="margin:0">ผู้ป่วยแยก (นับเข้าช่อง "แยก")</label></div>
+
+    <div id="admitBox">
+      <label>รับผู้ป่วยเข้าเวรนี้ → นับเข้ารายงานอัตโนมัติ</label>
+      <div class="seg" id="admitType" style="margin-top:8px">
+        <div class="o sel" data-t="admitNew">รับใหม่</div><div class="o" data-t="admitTransfer">รับย้าย</div><div class="o" data-t="admitRefer">รับ Refer</div>
+      </div>
+      <button class="primary" id="btnAdmit" style="margin-top:10px;width:100%">＋ บันทึกการรับเข้า</button>
     </div>
-    <div class="field">
-      <label>ชื่อผู้ป่วย</label>
-      <input type="text" id="bedPatient" placeholder="เว้นว่างได้">
+
+    <div id="dischargeBox">
+      <label>จำหน่าย / ส่งต่อ → นับเข้ารายงานอัตโนมัติ</label>
+      <div class="seg" id="dischargeType" style="margin-top:8px">
+        <div class="o sel" data-t="dcAllow">แพทย์อนุญาต</div><div class="o" data-t="referBack">Refer back</div><div class="o" data-t="referOut">Refer out</div>
+        <div class="o" data-t="dead">Dead</div><div class="o" data-t="icu">ย้าย ICU</div><div class="o" data-t="dept">ย้ายแผนก</div><div class="o" data-t="other">หนี/ปฏิเสธ</div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button id="btnDischarge" style="flex:1">จำหน่าย (ล้างเตียง)</button>
+        <button id="btnOR">🔪 ส่ง OR</button>
+      </div>
     </div>
-    <div class="field">
-      <label>HN / หมายเหตุ</label>
-      <input type="text" id="bedNote" placeholder="เช่น Dx, HN, ระวังพิเศษ">
-    </div>
+
     <div class="modal-actions">
-      <button id="bedClear">ล้างเตียงนี้</button>
+      <button id="bedClear" title="ล้างข้อมูลโดยไม่นับเป็นการจำหน่าย (ใช้ตอนตั้งค่า/แก้ผิด)">ล้าง (ไม่นับ)</button>
       <div class="spacer"></div>
       <button id="bedCancel">ยกเลิก</button>
-      <button class="primary" id="bedSave">บันทึก</button>
+      <button class="primary" id="bedSave">บันทึกข้อมูล</button>
     </div>
   </div>
 </div>
 
-<!-- Doctor manager modal -->
+<!-- Doctor manager -->
 <div class="overlay" id="docOverlay">
   <div class="modal">
     <h3>จัดการแพทย์ · สี · สาย</h3>
     <div id="docMgr"></div>
+    <div class="modal-actions"><div class="spacer"></div><button id="docClose" class="primary">เสร็จ</button></div>
+  </div>
+</div>
+
+<!-- Backup -->
+<div class="overlay" id="bkOverlay">
+  <div class="modal">
+    <h3>สำรอง / กู้คืนข้อมูล</h3>
+    <p style="color:var(--muted);font-size:13px">ข้อมูลทั้งหมด (ผังเตียง + รายงาน) เก็บในเครื่องนี้ ควรสำรองไว้เป็นไฟล์เป็นระยะ</p>
+    <div class="modal-actions" style="flex-wrap:wrap">
+      <button id="bkExport">⬇ ดาวน์โหลดไฟล์สำรอง (.json)</button>
+      <button id="bkImport">⬆ กู้คืนจากไฟล์</button>
+      <input type="file" id="bkFile" accept=".json" style="display:none">
+    </div>
     <div class="modal-actions">
+      <button id="bkClearAssign" class="ghost">🧹 ล้างผู้ป่วยทุกเตียง</button>
       <div class="spacer"></div>
-      <button id="docClose" class="primary">เสร็จ</button>
+      <button id="bkClose" class="primary">ปิด</button>
     </div>
   </div>
 </div>
 
 <script>
-const LS_KEY = "wardBoardV1";
+const LS_KEY="wardBoardV2";
+const ACU_W={5:12,4:7.5,3:5.5,2:3.5,1:1.5};
+const SHIFTS=["ด","ช","บ"];
 
-const DEFAULT_DOCTORS = [
-  {id:"d1", name:"พรหมพร",     sai:"A", color:"#2563eb"},
-  {id:"d2", name:"วิชญะ",       sai:"A", color:"#0891b2"},
-  {id:"d3", name:"ณัฐพร",       sai:"A", color:"#0d9488"},
-  {id:"d4", name:"พิชชา",       sai:"A", color:"#16a34a"},
-  {id:"d5", name:"ก้องเกียรติ", sai:"A", color:"#4f46e5"},
-  {id:"d6", name:"ธีรินทร์",    sai:"B", color:"#dc2626"},
-  {id:"d7", name:"จิระ",         sai:"B", color:"#ea580c"},
-  {id:"d8", name:"พงษ์พิริยะ",  sai:"B", color:"#d97706"},
-  {id:"d9", name:"ศวิษฐ์",       sai:"B", color:"#db2777"},
+const DEFAULT_DOCTORS=[
+  {id:"d1",name:"พรหมพร",sai:"A",color:"#2563eb"},
+  {id:"d2",name:"วิชญะ",sai:"A",color:"#0891b2"},
+  {id:"d3",name:"ณัฐพร",sai:"A",color:"#0d9488"},
+  {id:"d4",name:"พิชชา",sai:"A",color:"#16a34a"},
+  {id:"d5",name:"ก้องเกียรติ",sai:"A",color:"#4f46e5"},
+  {id:"d6",name:"ธีรินทร์",sai:"B",color:"#dc2626"},
+  {id:"d7",name:"จิระ",sai:"B",color:"#ea580c"},
+  {id:"d8",name:"พงษ์พิริยะ",sai:"B",color:"#d97706"},
+  {id:"d9",name:"ศวิษฐ์",sai:"B",color:"#db2777"},
 ];
-
-function mkBeds(prefix, n){
-  const a=[];
-  for(let i=1;i<=n;i++) a.push({id:prefix+"-"+i, label:String(i), doctorId:null, patient:"", note:""});
-  return a;
-}
+function bed(id,label,iso){return {id,label,doctorId:null,patient:"",note:"",acuity:0,iso:!!iso};}
+function mkSeq(p,start,n,iso){const a=[];for(let i=0;i<n;i++)a.push(bed(p+"-"+(i+1),String(start+i),iso));return a;}
 function defaultState(){
   return {
-    doctors: JSON.parse(JSON.stringify(DEFAULT_DOCTORS)),
-    sections: [
-      {id:"b1", name:"ลอค 1", type:"block",     beds:mkBeds("b1",8)},
-      {id:"b2", name:"ลอค 2", type:"block",     beds:mkBeds("b2",8)},
-      {id:"b3", name:"ลอค 3", type:"block",     beds:mkBeds("b3",8)},
-      {id:"s1", name:"ห้องพิเศษ 1", type:"private", beds:[
-        {id:"s1-1",label:"เตียง 1",doctorId:null,patient:"",note:""},
-        {id:"s1-2",label:"เตียง 2",doctorId:null,patient:"",note:""}]},
-      {id:"s2", name:"ห้องพิเศษ 2", type:"private", beds:[
-        {id:"s2-1",label:"เตียง 1",doctorId:null,patient:"",note:""},
-        {id:"s2-2",label:"เตียง 2",doctorId:null,patient:"",note:""}]},
-      {id:"s3", name:"ห้องพิเศษ 3", type:"private", beds:[
-        {id:"s3-1",label:"เตียง 1",doctorId:null,patient:"",note:""},
-        {id:"s3-2",label:"เตียง 2",doctorId:null,patient:"",note:""}]},
-      {id:"iso", name:"ห้องแยก", type:"isolation", beds:[
-        {id:"iso-1",label:"เตียง 1",doctorId:null,patient:"",note:""},
-        {id:"iso-2",label:"เตียง 2",doctorId:null,patient:"",note:""}]},
-      {id:"cor", name:"เตียงทางเดิน", type:"corridor", beds:mkBeds("cor",6)},
-    ]
+    doctors:JSON.parse(JSON.stringify(DEFAULT_DOCTORS)),
+    sections:[
+      {id:"b1",name:"ล็อค 1",type:"block",layout:"cw",beds:mkSeq("b1",1,8)},
+      {id:"b2",name:"ล็อค 2",type:"block",layout:"cw",beds:mkSeq("b2",9,8)},
+      {id:"b3",name:"ล็อค 3",type:"block",layout:"cw",beds:mkSeq("b3",17,8)},
+      {id:"s1",name:"ห้องพิเศษ 1",type:"private",beds:[bed("s1-1","101"),bed("s1-2","102")]},
+      {id:"s2",name:"ห้องพิเศษ 2",type:"private",beds:[bed("s2-1","201"),bed("s2-2","202")]},
+      {id:"s3",name:"ห้องพิเศษ 3",type:"private",beds:[bed("s3-1","301"),bed("s3-2","302")]},
+      {id:"iso",name:"ห้องแยก",type:"isolation",beds:[bed("iso-1","แยก 1",true),bed("iso-2","แยก 2",true)]},
+      {id:"cor",name:"เตียงทางเดิน",type:"corridor",beds:mkSeq("cor",25,6)},
+    ],
+    reports:{},  // key "YYYY-MM-DD|เวร" -> record
+    events:[],   // {id,date,shift,type,bedLabel,patient,ts}
+    current:{date:todayISO(),shift:guessShift()},
+    schemaV:3
   };
 }
-
-let state, activeDoc=null, curBed=null;
-
-function load(){
-  try{ const s=JSON.parse(localStorage.getItem(LS_KEY)); if(s&&s.doctors&&s.sections) return s; }catch(e){}
-  return defaultState();
+function todayISO(){return new Date().toISOString().slice(0,10);}
+function guessShift(){const h=new Date().getHours();return h<8?"ด":(h<16?"ช":"บ");}
+function migrate(s){
+  if(!s.events)s.events=[];
+  if(!s.current)s.current={date:todayISO(),shift:guessShift()};
+  if(s.schemaV>=3)return s;
+  const findSec=id=>s.sections.find(x=>x.id===id);
+  const block=(id,base,name)=>{const sec=findSec(id);if(sec){sec.layout="cw";sec.name=name;sec.beds.forEach((b,i)=>b.label=String(base+i));}};
+  const relabel=(id,labels)=>{const sec=findSec(id);if(sec)sec.beds.forEach((b,i)=>{if(labels[i]!==undefined)b.label=labels[i];});};
+  block("b1",1,"ล็อค 1");block("b2",9,"ล็อค 2");block("b3",17,"ล็อค 3");
+  relabel("s1",["101","102"]);relabel("s2",["201","202"]);relabel("s3",["301","302"]);
+  relabel("iso",["แยก 1","แยก 2"]);
+  const cor=findSec("cor");if(cor)cor.beds.forEach((b,i)=>b.label=String(25+i));
+  s.schemaV=3;return s;
 }
-function save(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){} }
 
-function docById(id){ return state.doctors.find(d=>d.id===id)||null; }
-function contrast(hex){
-  const c=hex.replace('#',''); const r=parseInt(c.substr(0,2),16),g=parseInt(c.substr(2,2),16),b=parseInt(c.substr(4,2),16);
-  return (r*299+g*587+b*114)/1000 > 150 ? "#0b1220" : "#ffffff";
+let state,activeDoc=null,curBed=null;
+
+function load(){try{const s=JSON.parse(localStorage.getItem(LS_KEY));if(s&&s.doctors&&s.sections){if(!s.reports)s.reports={};s.sections.forEach(sec=>sec.beds.forEach(b=>{if(b.acuity===undefined)b.acuity=0;if(b.iso===undefined)b.iso=(sec.type==="isolation");}));return migrate(s);}}catch(e){}return defaultState();}
+function save(){try{localStorage.setItem(LS_KEY,JSON.stringify(state));}catch(e){}}
+function docById(id){return state.doctors.find(d=>d.id===id)||null;}
+function allBeds(){return state.sections.flatMap(s=>s.beds);}
+function occBeds(){return allBeds().filter(b=>b.patient||b.doctorId||b.acuity);} // "occupied" = has any patient data
+function contrast(hex){const c=hex.replace('#','');const r=parseInt(c.substr(0,2),16),g=parseInt(c.substr(2,2),16),b=parseInt(c.substr(4,2),16);return (r*299+g*587+b*114)/1000>150?"#0b1220":"#fff";}
+function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function numSort(a,b){const na=parseFloat(a.label),nb=parseFloat(b.label);const va=isNaN(na)?Infinity:na,vb=isNaN(nb)?Infinity:nb;if(va!==vb)return va-vb;return String(a.label).localeCompare(String(b.label));}
+
+/* ---------- events / current shift ---------- */
+const EV_LABEL={admitNew:"รับใหม่",admitTransfer:"รับย้าย",admitRefer:"รับ Refer",dcAllow:"แพทย์อนุญาต",referBack:"Refer back",referOut:"Refer out",dead:"Dead",icu:"ย้าย ICU",dept:"ย้ายแผนก",or:"OR",other:"หนี/ปฏิเสธ"};
+const EV_IN=["admitNew","admitTransfer","admitRefer"];
+function evClass(t){return t==="or"?"ev-or":(EV_IN.includes(t)?"ev-in":"ev-out");}
+function logEvent(type,b){
+  if(!state.current||!state.current.date){alert("ตั้งวันที่เวรที่กำลังบันทึกก่อน (แถบบนหน้าผังเตียง)");return false;}
+  state.events.push({id:"e"+Date.now()+Math.random().toString(36).slice(2,6),date:state.current.date,shift:state.current.shift,type,bedLabel:b.label,patient:b.patient||"",ts:Date.now()});
+  return true;
 }
-function allBeds(){ return state.sections.flatMap(s=>s.beds); }
+function tallyEvents(date,shift){
+  const t={admitNew:0,admitTransfer:0,admitRefer:0,dcAllow:0,referBack:0,referOut:0,dead:0,icu:0,dept:0,or:0,other:0};
+  (state.events||[]).forEach(e=>{if(e.date===date&&e.shift===shift&&t[e.type]!==undefined)t[e.type]++;});
+  return t;
+}
+function renderCurrentBar(){
+  document.getElementById("curDate").value=state.current.date;
+  document.getElementById("curShift").value=state.current.shift;
+  const n=(state.events||[]).filter(e=>e.date===state.current.date&&e.shift===state.current.shift).length;
+  document.getElementById("curEventCount").textContent=n?`(${n} เหตุการณ์ในเวรนี้)`:"(ยังไม่มีเหตุการณ์)";
+}
+document.getElementById("curDate").addEventListener("change",e=>{state.current.date=e.target.value;save();renderCurrentBar();});
+document.getElementById("curShift").addEventListener("change",e=>{state.current.shift=e.target.value;save();renderCurrentBar();});
+let _toastEl;
+function toast(msg){if(!_toastEl){_toastEl=document.createElement("div");_toastEl.style.cssText="position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#0ea5e9;color:#04222f;padding:10px 16px;border-radius:10px;font-weight:700;z-index:200;box-shadow:0 4px 14px #0007;transition:opacity .3s";document.body.appendChild(_toastEl);}_toastEl.textContent=msg;_toastEl.style.opacity="1";clearTimeout(_toastEl._t);_toastEl._t=setTimeout(()=>_toastEl.style.opacity="0",1700);}
 
-/* ---------- render doctors brush ---------- */
+/* ---------- board: doctors ---------- */
 function renderDocs(){
-  const counts={}; allBeds().forEach(b=>{ if(b.doctorId) counts[b.doctorId]=(counts[b.doctorId]||0)+1; });
-  const el=document.getElementById("docs"); el.innerHTML="";
+  const counts={};allBeds().forEach(b=>{if(b.doctorId)counts[b.doctorId]=(counts[b.doctorId]||0)+1;});
+  const el=document.getElementById("docs");el.innerHTML="";
   ["A","B"].forEach(sai=>{
-    const lab=document.createElement("span"); lab.className="sai-label"; lab.textContent="สาย "+sai; el.appendChild(lab);
+    const lab=document.createElement("span");lab.className="sai-label";lab.textContent="สาย "+sai;el.appendChild(lab);
     state.doctors.filter(d=>d.sai===sai).forEach(d=>{
-      const c=document.createElement("div");
-      c.className="doc-chip"+(activeDoc===d.id?" active":"");
-      c.innerHTML=`<span class="dot" style="background:${d.color}"></span>${d.name}<span class="cnt">${counts[d.id]||0}</span>`;
-      c.onclick=()=>{ activeDoc = activeDoc===d.id?null:d.id; renderDocs(); renderHint(); };
-      el.appendChild(c);
+      const c=document.createElement("div");c.className="doc-chip"+(activeDoc===d.id?" active":"");
+      c.innerHTML=`<span class="dot" style="background:${d.color}"></span>${escapeHtml(d.name)}<span class="cnt">${counts[d.id]||0}</span>`;
+      c.onclick=()=>{activeDoc=activeDoc===d.id?null:d.id;renderDocs();renderHint();};el.appendChild(c);
     });
   });
 }
 function renderHint(){
   const h=document.getElementById("brushHint");
-  if(activeDoc){ const d=docById(activeDoc);
-    h.innerHTML=`โหมดลงเวรเร็ว: กำลังเลือก <b style="color:${d.color}">${d.name}</b> — แตะเตียงเพื่อลงชื่อทันที (แตะซ้ำเพื่อเอาออก) · แตะไอคอน ✎ เพื่อใส่ชื่อผู้ป่วย`;
-  } else {
-    h.innerHTML=`แตะที่แพทย์ด้านบนเพื่อ "ลงเวรเร็ว" แล้วแตะเตียง · หรือแตะเตียงเพื่อเปิดรายละเอียด`;
-  }
+  if(activeDoc){const d=docById(activeDoc);h.innerHTML=`ลงเวรเร็ว: เลือก <b style="color:${d.color}">${escapeHtml(d.name)}</b> — แตะเตียงเพื่อลงทันที (แตะซ้ำเอาออก) · แตะ ✎ เพื่อใส่รายละเอียด/acuity`;}
+  else h.innerHTML=`แตะแพทย์ด้านบนเพื่อ "ลงเวรเร็ว" · หรือแตะเตียงเพื่อเปิดรายละเอียด (ชื่อผู้ป่วย, ประเภท, แยก)`;
 }
-
-/* ---------- render summary ---------- */
+/* ---------- board: summary ---------- */
 function renderSummary(){
-  const beds=allBeds(); const total=beds.length;
-  let occ=0, saiA=0, saiB=0;
-  beds.forEach(b=>{ if(b.doctorId){ occ++; const d=docById(b.doctorId); if(d){ if(d.sai==="A")saiA++; else saiB++; } } });
-  const empty=total-occ;
-  const el=document.getElementById("summary"); el.innerHTML="";
-  const cards=[
-    {k:"เตียงทั้งหมด", v:total, s:""},
-    {k:"มีผู้ป่วย", v:occ, s:`ว่าง ${empty}`},
-    {k:"สาย A", v:saiA, s:"เตียง", col:"#2563eb"},
-    {k:"สาย B", v:saiB, s:"เตียง", col:"#dc2626"},
-  ];
-  cards.forEach(c=>{
-    const d=document.createElement("div"); d.className="card";
-    d.innerHTML=`<div class="k">${c.k}</div><div class="v" style="${c.col?'color:'+c.col:''}">${c.v} <small>${c.s}</small></div>`;
-    el.appendChild(d);
-  });
+  const beds=allBeds(),total=beds.length;let occ=0,saiA=0,saiB=0,iso=0;
+  beds.forEach(b=>{const has=b.patient||b.doctorId||b.acuity;if(has){occ++;if(b.iso)iso++;const d=docById(b.doctorId);if(d){if(d.sai==="A")saiA++;else saiB++;}}});
+  const el=document.getElementById("summary");el.innerHTML="";
+  [{k:"เตียงทั้งหมด",v:total,s:""},{k:"มีผู้ป่วย",v:occ,s:`ว่าง ${total-occ}`},
+   {k:"สามัญ / แยก",v:`${occ-iso}/${iso}`,s:""},
+   {k:"สาย A",v:saiA,s:"เตียง",col:"#2563eb"},{k:"สาย B",v:saiB,s:"เตียง",col:"#dc2626"}]
+  .forEach(c=>{const d=document.createElement("div");d.className="card";d.innerHTML=`<div class="k">${c.k}</div><div class="v" style="${c.col?'color:'+c.col:''}">${c.v} <small>${c.s}</small></div>`;el.appendChild(d);});
 }
-
-/* ---------- render map ---------- */
+/* ---------- board: map ---------- */
 function renderMap(){
-  const map=document.getElementById("map"); map.innerHTML="";
+  const map=document.getElementById("map");map.innerHTML="";
   state.sections.forEach(sec=>{
-    const wrap=document.createElement("div"); wrap.className="section";
-    const occ=sec.beds.filter(b=>b.doctorId).length;
-    const head=document.createElement("div"); head.className="section-head";
-    head.innerHTML=`<span class="title">${sec.name}</span>
-      <span class="tag">${occ}/${sec.beds.length} เตียง</span>`;
-    const tools=document.createElement("div"); tools.className="sec-tools";
-    const addb=document.createElement("button"); addb.className="sm"; addb.textContent="+ เตียง";
-    addb.onclick=()=>{ const n=sec.beds.length+1;
-      sec.beds.push({id:sec.id+"-"+Date.now(),label:String(n),doctorId:null,patient:"",note:""}); save(); renderAll(); };
-    tools.appendChild(addb);
-    head.appendChild(tools);
-    wrap.appendChild(head);
-
-    const grid=document.createElement("div"); grid.className="beds "+sec.type;
-    sec.beds.forEach(bed=>{
-      const d=bed.doctorId?docById(bed.doctorId):null;
-      const cell=document.createElement("div");
-      cell.className="bed"+(d?"":" empty");
-      if(d){ cell.style.background=d.color; cell.style.color=contrast(d.color); cell.style.borderColor=d.color; }
+    const wrap=document.createElement("div");wrap.className="section";
+    const occ=sec.beds.filter(b=>b.patient||b.doctorId||b.acuity).length;
+    const head=document.createElement("div");head.className="section-head";
+    head.innerHTML=`<span class="title">${escapeHtml(sec.name)}</span><span class="tag">${occ}/${sec.beds.length} เตียง</span>`;
+    const tools=document.createElement("div");tools.className="sec-tools";
+    const addb=document.createElement("button");addb.className="sm";addb.textContent="+ เตียง";
+    addb.onclick=()=>{const nums=sec.beds.map(b=>parseFloat(b.label)).filter(n=>!isNaN(n));const nx=(nums.length?Math.max(...nums):0)+1;sec.beds.push(bed(sec.id+"-"+Date.now(),String(nx),sec.type==="isolation"));if(sec.layout!=="cw")sec.beds.sort(numSort);save();renderAll();};
+    tools.appendChild(addb);head.appendChild(tools);wrap.appendChild(head);
+    const grid=document.createElement("div");grid.className="beds "+sec.type;
+    let renderBeds=sec.beds;
+    if(sec.layout==="cw"){  // clockwise ring: top row L→R, bottom row R→L
+      const n=sec.beds.length,cols=Math.max(1,Math.ceil(n/2));
+      grid.style.gridTemplateColumns=`repeat(${cols},1fr)`;
+      renderBeds=sec.beds.slice(0,cols).concat(sec.beds.slice(cols).reverse());
+    }
+    renderBeds.forEach(b=>{
+      const d=b.doctorId?docById(b.doctorId):null;const has=b.patient||b.doctorId||b.acuity;
+      const cell=document.createElement("div");cell.className="bed"+(has?"":" empty");
+      if(d){cell.style.background=d.color;cell.style.color=contrast(d.color);cell.style.borderColor=d.color;}
       cell.innerHTML=`
-        <div class="lbl">${bed.label}</div>
-        <div class="doc">${d?d.name:"— ว่าง —"}</div>
-        ${bed.patient?`<div class="pt">${escapeHtml(bed.patient)}</div>`:""}
-        ${bed.note?`<div class="note">${escapeHtml(bed.note)}</div>`:""}
-        <div class="i">✎</div>
+        <div class="lbl">${escapeHtml(b.label)}</div>
+        <div class="doc">${d?escapeHtml(d.name):(has?"(ไม่ระบุแพทย์)":"— ว่าง —")}</div>
+        ${b.patient?`<div class="pt">${escapeHtml(b.patient)}</div>`:""}
+        ${b.note?`<div class="note">${escapeHtml(b.note)}</div>`:""}
+        <div class="badges">${b.iso?'<span class="iso">แยก</span>':''}${b.acuity?`<span class="acu">${b.acuity}</span>`:''}<span class="i">✎</span></div>
         <button class="rm-bed" title="ลบเตียง">×</button>`;
-      // remove bed (edit mode)
-      cell.querySelector(".rm-bed").onclick=(e)=>{ e.stopPropagation();
-        if(confirm("ลบ "+sec.name+" · "+bed.label+" ?")){ sec.beds=sec.beds.filter(x=>x.id!==bed.id); save(); renderAll(); } };
-      // info icon -> always open modal
-      cell.querySelector(".i").onclick=(e)=>{ e.stopPropagation(); openBed(sec,bed); };
-      // cell click
-      cell.onclick=()=>{
-        if(document.body.classList.contains("editing")){ openBed(sec,bed); return; }
-        if(activeDoc){ bed.doctorId = bed.doctorId===activeDoc?null:activeDoc; save(); renderAll(); }
-        else openBed(sec,bed);
-      };
+      cell.querySelector(".rm-bed").onclick=(e)=>{e.stopPropagation();if(confirm("ลบ "+sec.name+" เตียง "+b.label+" ?")){sec.beds=sec.beds.filter(x=>x.id!==b.id);save();renderAll();}};
+      cell.querySelector(".i").onclick=(e)=>{e.stopPropagation();openBed(sec,b);};
+      cell.onclick=()=>{if(document.body.classList.contains("editing")){openBed(sec,b);return;}if(activeDoc){b.doctorId=b.doctorId===activeDoc?null:activeDoc;save();renderAll();}else openBed(sec,b);};
       grid.appendChild(cell);
     });
-    wrap.appendChild(grid);
-    map.appendChild(wrap);
+    wrap.appendChild(grid);map.appendChild(wrap);
   });
 }
-
-function escapeHtml(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
-
 /* ---------- bed modal ---------- */
-function openBed(sec,bed){
-  curBed={sec,bed};
-  document.getElementById("bedTitle").textContent=sec.name+" · เตียง "+bed.label;
-  document.getElementById("bedLabel").value=bed.label;
-  document.getElementById("bedPatient").value=bed.patient||"";
-  document.getElementById("bedNote").value=bed.note||"";
-  const pick=document.getElementById("bedDocPick"); pick.innerHTML="";
-  const none=document.createElement("div"); none.className="p"+(bed.doctorId?"":" sel");
-  none.dataset.id=""; none.innerHTML=`<span class="dot" style="background:#475569"></span>ว่าง`;
-  none.onclick=()=>selDoc(""); pick.appendChild(none);
-  state.doctors.forEach(d=>{
-    const p=document.createElement("div"); p.className="p"+(bed.doctorId===d.id?" sel":"");
-    p.dataset.id=d.id; p.innerHTML=`<span class="dot" style="background:${d.color}"></span>${d.name}`;
-    p.onclick=()=>selDoc(d.id); pick.appendChild(p);
-  });
+function openBed(sec,b){
+  curBed={sec,b};
+  document.getElementById("bedTitle").textContent=sec.name+" · เตียง "+b.label;
+  document.getElementById("bedLabel").value=b.label;
+  document.getElementById("bedPatient").value=b.patient||"";
+  document.getElementById("bedNote").value=b.note||"";
+  document.getElementById("bedIso").checked=!!b.iso;
+  document.querySelectorAll("#bedAcu .o").forEach(o=>o.classList.toggle("sel",Number(o.dataset.a)===(b.acuity||0)));
+  const pick=document.getElementById("bedDocPick");pick.innerHTML="";
+  const none=document.createElement("div");none.className="p"+(b.doctorId?"":" sel");none.dataset.id="";none.innerHTML=`<span class="dot" style="background:#475569"></span>ว่าง`;none.onclick=()=>selDoc("");pick.appendChild(none);
+  state.doctors.forEach(d=>{const p=document.createElement("div");p.className="p"+(b.doctorId===d.id?" sel":"");p.dataset.id=d.id;p.innerHTML=`<span class="dot" style="background:${d.color}"></span>${escapeHtml(d.name)}`;p.onclick=()=>selDoc(d.id);pick.appendChild(p);});
+  // show admit vs discharge based on occupancy; reset default type selections
+  const occupied=!!(b.patient||b.doctorId||b.acuity);
+  document.getElementById("admitBox").style.display=occupied?"none":"block";
+  document.getElementById("dischargeBox").style.display=occupied?"block":"none";
+  document.querySelectorAll("#admitType .o").forEach((o,i)=>o.classList.toggle("sel",i===0));
+  document.querySelectorAll("#dischargeType .o").forEach((o,i)=>o.classList.toggle("sel",i===0));
   document.getElementById("bedOverlay").classList.add("open");
 }
-function selDoc(id){
-  document.querySelectorAll("#bedDocPick .p").forEach(p=>p.classList.toggle("sel",p.dataset.id===id));
-}
-function closeBed(){ document.getElementById("bedOverlay").classList.remove("open"); curBed=null; }
-
-document.getElementById("bedSave").onclick=()=>{
-  if(!curBed) return;
+function applyFields(b){
   const sel=document.querySelector("#bedDocPick .p.sel");
-  curBed.bed.doctorId = sel && sel.dataset.id ? sel.dataset.id : null;
-  curBed.bed.label=document.getElementById("bedLabel").value.trim()||curBed.bed.label;
-  curBed.bed.patient=document.getElementById("bedPatient").value.trim();
-  curBed.bed.note=document.getElementById("bedNote").value.trim();
-  save(); closeBed(); renderAll();
+  b.doctorId=sel&&sel.dataset.id?sel.dataset.id:null;
+  b.patient=document.getElementById("bedPatient").value.trim();
+  b.note=document.getElementById("bedNote").value.trim();
+  b.iso=document.getElementById("bedIso").checked;
+  const acuSel=document.querySelector("#bedAcu .o.sel");b.acuity=acuSel?Number(acuSel.dataset.a):0;
+}
+function selDoc(id){document.querySelectorAll("#bedDocPick .p").forEach(p=>p.classList.toggle("sel",p.dataset.id===id));}
+document.querySelectorAll("#bedAcu .o").forEach(o=>o.onclick=()=>document.querySelectorAll("#bedAcu .o").forEach(x=>x.classList.toggle("sel",x===o)));
+document.querySelectorAll("#admitType .o").forEach(o=>o.onclick=()=>document.querySelectorAll("#admitType .o").forEach(x=>x.classList.toggle("sel",x===o)));
+document.querySelectorAll("#dischargeType .o").forEach(o=>o.onclick=()=>document.querySelectorAll("#dischargeType .o").forEach(x=>x.classList.toggle("sel",x===o)));
+document.getElementById("btnAdmit").onclick=()=>{
+  if(!curBed)return;const b=curBed.b;applyFields(b);
+  const t=document.querySelector("#admitType .o.sel");const type=t?t.dataset.t:"admitNew";
+  if(logEvent(type,b)){save();closeBed();renderAll();toast("รับเข้า: "+EV_LABEL[type]);}
 };
-document.getElementById("bedClear").onclick=()=>{
-  if(!curBed) return;
-  curBed.bed.doctorId=null; curBed.bed.patient=""; curBed.bed.note="";
-  save(); closeBed(); renderAll();
+document.getElementById("btnDischarge").onclick=()=>{
+  if(!curBed)return;const b=curBed.b;
+  b.patient=document.getElementById("bedPatient").value.trim()||b.patient;
+  const t=document.querySelector("#dischargeType .o.sel");const type=t?t.dataset.t:"dcAllow";
+  if(logEvent(type,b)){b.doctorId=null;b.patient="";b.note="";b.acuity=0;b.iso=(curBed.sec.type==="isolation");save();closeBed();renderAll();toast("จำหน่าย: "+EV_LABEL[type]);}
 };
+document.getElementById("btnOR").onclick=()=>{
+  if(!curBed)return;const b=curBed.b;b.patient=document.getElementById("bedPatient").value.trim()||b.patient;
+  if(logEvent("or",b)){applyFields(b);save();closeBed();renderAll();toast("ส่ง OR แล้ว");}
+};
+function closeBed(){document.getElementById("bedOverlay").classList.remove("open");curBed=null;}
+function swapBedData(a,c){["doctorId","patient","note","acuity","iso"].forEach(k=>{const t=a[k];a[k]=c[k];c[k]=t;});}
+document.getElementById("bedSave").onclick=()=>{
+  if(!curBed)return;const {b}=curBed;
+  applyFields(b);
+  // เลขเตียงคงที่ — ถ้าพิมพ์เลขปลายทางต่างจากเตียงนี้ ให้ย้าย/สลับข้อมูลผู้ป่วยไปเตียงนั้น
+  const target=document.getElementById("bedLabel").value.trim();
+  if(target&&target!==b.label){
+    const dest=allBeds().find(x=>x.label===target);
+    if(!dest){alert('ไม่พบเตียงเลข "'+target+'"');return;}
+    swapBedData(b,dest);
+  }
+  save();closeBed();renderAll();
+};
+document.getElementById("bedClear").onclick=()=>{if(!curBed)return;const b=curBed.b;b.doctorId=null;b.patient="";b.note="";b.acuity=0;save();closeBed();renderAll();};
 document.getElementById("bedCancel").onclick=closeBed;
-document.getElementById("bedOverlay").onclick=(e)=>{ if(e.target.id==="bedOverlay") closeBed(); };
+document.getElementById("bedOverlay").onclick=(e)=>{if(e.target.id==="bedOverlay")closeBed();};
 
 /* ---------- doctor manager ---------- */
-function openDocMgr(){
-  const box=document.getElementById("docMgr"); box.innerHTML="";
+document.getElementById("btnDocs").onclick=()=>{
+  const box=document.getElementById("docMgr");box.innerHTML="";
   state.doctors.forEach(d=>{
-    const row=document.createElement("div"); row.className="mgr-row";
-    row.innerHTML=`<span class="sai">สาย ${d.sai}</span>
-      <input type="color" value="${d.color}">
-      <input type="text" value="${escapeHtml(d.name)}">`;
+    const row=document.createElement("div");row.className="mgr-row";
+    row.innerHTML=`<span class="sai">สาย ${d.sai}</span><input type="color" value="${d.color}"><input type="text" value="${escapeHtml(d.name)}">`;
     const [color,name]=row.querySelectorAll("input");
-    color.oninput=()=>{ d.color=color.value; save(); renderDocs(); renderMap(); };
-    name.oninput=()=>{ d.name=name.value; save(); renderDocs(); renderMap(); };
+    color.oninput=()=>{d.color=color.value;save();renderDocs();renderMap();};
+    name.oninput=()=>{d.name=name.value;save();renderDocs();renderMap();};
     box.appendChild(row);
   });
   document.getElementById("docOverlay").classList.add("open");
-}
-document.getElementById("btnDocs").onclick=openDocMgr;
+};
 document.getElementById("docClose").onclick=()=>document.getElementById("docOverlay").classList.remove("open");
-document.getElementById("docOverlay").onclick=(e)=>{ if(e.target.id==="docOverlay") e.currentTarget.classList.remove("open"); };
+document.getElementById("docOverlay").onclick=(e)=>{if(e.target.id==="docOverlay")e.currentTarget.classList.remove("open");};
 
 /* ---------- header buttons ---------- */
-document.getElementById("btnEdit").onclick=()=>{
-  document.body.classList.toggle("editing");
-  const on=document.body.classList.contains("editing");
-  document.getElementById("btnEdit").textContent= on?"✓ เสร็จการแก้ไข":"✏️ แก้ไขผังเตียง";
+document.getElementById("btnEdit").onclick=()=>{document.body.classList.toggle("editing");const on=document.body.classList.contains("editing");document.getElementById("btnEdit").textContent=on?"✓ เสร็จการแก้ไข":"✏️ แก้ไขผังเตียง";};
+document.getElementById("btnBackup").onclick=()=>document.getElementById("bkOverlay").classList.add("open");
+document.getElementById("bkClose").onclick=()=>document.getElementById("bkOverlay").classList.remove("open");
+document.getElementById("bkOverlay").onclick=(e)=>{if(e.target.id==="bkOverlay")e.currentTarget.classList.remove("open");};
+document.getElementById("bkExport").onclick=()=>{const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="ward-backup-"+new Date().toISOString().slice(0,10)+".json";a.click();};
+document.getElementById("bkImport").onclick=()=>document.getElementById("bkFile").click();
+document.getElementById("bkFile").onchange=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const s=JSON.parse(r.result);if(s.doctors&&s.sections){state=s;if(!state.reports)state.reports={};save();renderAll();renderReportTab();alert("กู้คืนสำเร็จ");document.getElementById("bkOverlay").classList.remove("open");}else alert("ไฟล์ไม่ถูกต้อง");}catch(err){alert("อ่านไฟล์ไม่ได้");}};r.readAsText(f);};
+document.getElementById("bkClearAssign").onclick=()=>{if(confirm("ล้างผู้ป่วย/แพทย์/acuity ทุกเตียง? (โครงสร้างเตียงคงเดิม)")){allBeds().forEach(b=>{b.doctorId=null;b.patient="";b.note="";b.acuity=0;});save();renderAll();}};
+
+/* ---------- tabs ---------- */
+document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
+  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===t));
+  document.querySelectorAll(".view").forEach(v=>v.classList.toggle("active",v.id==="view-"+t.dataset.view));
+  if(t.dataset.view==="report")renderReportTab();
+});
+
+/* =================== REPORT =================== */
+function boardSnapshot(){
+  const beds=allBeds();const ac={5:0,4:0,3:0,2:0,1:0};let iso=0,gen=0,occ=0;
+  beds.forEach(b=>{const has=b.patient||b.doctorId||b.acuity;if(!has)return;occ++;if(b.iso)iso++;else gen++;if(b.acuity)ac[b.acuity]++;});
+  return {ac,iso,gen,occ};
+}
+function repKey(){return document.getElementById("repDate").value+"|"+document.getElementById("repShift").value;}
+function orderVal(k){const [d,s]=k.split("|");return d+"#"+SHIFTS.indexOf(s);}
+function sortedKeys(){return Object.keys(state.reports).sort((a,b)=>orderVal(a).localeCompare(orderVal(b)));}
+function prevQ(){
+  // previous shift (same or earlier date) total Q
+  const date=document.getElementById("repDate").value,sh=document.getElementById("repShift").value;
+  const idx=SHIFTS.indexOf(sh);
+  const keys=Object.keys(state.reports).sort();
+  let best=null;
+  keys.forEach(k=>{const [d,s]=k.split("|");const order=d+"#"+SHIFTS.indexOf(s);const curOrder=date+"#"+idx;if(order<curOrder){if(!best||order>best.order)best={order,rec:state.reports[k]};}});
+  return best?computed(best.rec).Q:null;
+}
+function readForm(){
+  const g=id=>{const v=parseFloat(document.getElementById(id).value);return isNaN(v)?0:v;};
+  return {
+    date:document.getElementById("repDate").value,shift:document.getElementById("repShift").value,
+    ac5:g("a5"),ac4:g("a4"),ac3:g("a3"),ac2:g("a2"),ac1:g("a1"),
+    iso:g("f_iso"),
+    carry:g("f_carry"),anew:g("f_new"),tin:g("f_tin"),rin:g("f_rin"),
+    dc:g("f_dc"),rb:g("f_rb"),ro:g("f_ro"),dead:g("f_dead"),icu:g("f_icu"),dept:g("f_dept"),
+    or:g("f_or"),other:g("f_other"),admin:g("f_admin")
+  };
+}
+function computed(r){
+  const O=r.carry+r.anew+r.tin+r.rin-r.dc-r.rb-r.ro-r.dead-r.icu-r.dept;
+  const Q=O+r.iso;
+  const AC=r.ac5*ACU_W[5]+r.ac4*ACU_W[4]+r.ac3*ACU_W[3]+r.ac2*ACU_W[2]+r.ac1*ACU_W[1];
+  const AD=r.admin>0?AC/3/r.admin*100:0;
+  return {O,Q,AC,AD};
+}
+function updateCalc(){
+  const r=readForm();const c=computed(r);
+  document.getElementById("c_O").textContent=c.O;
+  document.getElementById("c_Q").textContent=c.Q;
+  document.getElementById("c_AC").textContent=c.AC.toFixed(1);
+  document.getElementById("c_AD").textContent=c.AD?c.AD.toFixed(1):"—";
+  const snap=boardSnapshot();const warn=snap.gen!==c.O;
+  document.getElementById("repCheck").innerHTML=`เช็คกับผังเตียงตอนนี้: สามัญ ${snap.gen} · แยก ${snap.iso} · รวม ${snap.occ} — O(คำนวณ)=${c.O}, Q=${c.Q}`+(warn?` <span style="color:#f59e0b">⚠ สามัญไม่ตรงกับผังเตียง (อาจมี event ตกหล่น หรือกำลังดูคนละเวรกับที่บันทึกอยู่)</span>`:` ✓ ตรงกัน`);
+}
+function buildAcuityInputs(){
+  const box=document.getElementById("acuityInputs");box.innerHTML="";
+  [5,4,3,2,1].forEach(l=>{
+    const d=document.createElement("div");d.className="inp auto";
+    d.innerHTML=`<label>ระดับ ${l} (×${ACU_W[l]})<span class="auto-tag"> auto</span></label><input type="number" step="1" id="a${l}">`;
+    box.appendChild(d);
+  });
+}
+function fillFromBoard(){
+  const s=boardSnapshot();
+  document.getElementById("a5").value=s.ac[5];document.getElementById("a4").value=s.ac[4];
+  document.getElementById("a3").value=s.ac[3];document.getElementById("a2").value=s.ac[2];document.getElementById("a1").value=s.ac[1];
+  document.getElementById("f_iso").value=s.iso;
+  const date=document.getElementById("repDate").value,sh=document.getElementById("repShift").value;
+  const t=tallyEvents(date,sh);
+  document.getElementById("f_new").value=t.admitNew;document.getElementById("f_tin").value=t.admitTransfer;document.getElementById("f_rin").value=t.admitRefer;
+  document.getElementById("f_dc").value=t.dcAllow;document.getElementById("f_rb").value=t.referBack;document.getElementById("f_ro").value=t.referOut;
+  document.getElementById("f_dead").value=t.dead;document.getElementById("f_icu").value=t.icu;document.getElementById("f_dept").value=t.dept;
+  document.getElementById("f_or").value=t.or;document.getElementById("f_other").value=t.other;
+  const pq=prevQ();if(pq!==null&&!document.getElementById("f_carry").value)document.getElementById("f_carry").value=pq;
+  updateCalc();renderEventLog();
+}
+function renderEventLog(){
+  const date=document.getElementById("repDate").value,sh=document.getElementById("repShift").value;
+  const evs=(state.events||[]).filter(e=>e.date===date&&e.shift===sh).sort((a,b)=>b.ts-a.ts);
+  document.getElementById("evCount").textContent=evs.length?`(${evs.length})`:"(ยังไม่มี)";
+  const box=document.getElementById("evLog");
+  if(!evs.length){box.innerHTML='<div class="row" style="color:var(--muted)">ยังไม่มีเหตุการณ์ในเวรนี้ — ไปที่หน้าผังเตียง กดรับ/จำหน่าย/ส่ง OR ที่เตียง จะถูกนับมาที่นี่เอง</div>';return;}
+  box.innerHTML=evs.map(e=>{const tm=new Date(e.ts).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});
+    return `<div class="row"><span class="t ${evClass(e.type)}">${EV_LABEL[e.type]}</span><span>เตียง ${escapeHtml(e.bedLabel)}</span><span style="color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(e.patient||"")}</span><span style="color:var(--muted)">${tm}</span><button class="sm" data-ev="${e.id}">🗑</button></div>`;}).join("");
+  box.querySelectorAll("button[data-ev]").forEach(btn=>btn.onclick=()=>{if(confirm("ลบเหตุการณ์นี้? (รายงานจะนับใหม่)")){state.events=state.events.filter(x=>x.id!==btn.dataset.ev);save();fillFromBoard();renderCurrentBar();}});
+}
+function loadRecordToForm(){
+  const rec=state.reports[repKey()];
+  const setv=(id,v)=>document.getElementById(id).value=(v===0||v)?v:"";
+  if(rec){
+    setv("a5",rec.ac5);setv("a4",rec.ac4);setv("a3",rec.ac3);setv("a2",rec.ac2);setv("a1",rec.ac1);
+    setv("f_gen",rec.gen);setv("f_iso",rec.iso);setv("f_carry",rec.carry);setv("f_new",rec.anew);
+    setv("f_tin",rec.tin);setv("f_rin",rec.rin);setv("f_dc",rec.dc);setv("f_rb",rec.rb);setv("f_ro",rec.ro);
+    setv("f_dead",rec.dead);setv("f_icu",rec.icu);setv("f_dept",rec.dept);setv("f_or",rec.or);setv("f_other",rec.other);setv("f_admin",rec.admin);
+    updateCalc();
+  } else { clearForm(false); fillFromBoard(); }
+  renderEventLog();
+}
+function clearForm(fill){
+  ["a5","a4","a3","a2","a1","f_iso","f_carry","f_new","f_tin","f_rin","f_dc","f_rb","f_ro","f_dead","f_icu","f_dept","f_or","f_other","f_admin"].forEach(id=>document.getElementById(id).value="");
+  if(fill)fillFromBoard();else updateCalc();
+}
+function renderReportTab(){
+  document.getElementById("repDate").value=state.current.date;
+  document.getElementById("repShift").value=state.current.shift;
+  buildAcuityInputs();
+  document.querySelectorAll("#view-report input").forEach(i=>{i.oninput=updateCalc;});
+  loadRecordToForm();
+  renderHistory();
+}
+document.getElementById("repDate").addEventListener("change",loadRecordToForm);
+document.getElementById("repShift").addEventListener("change",loadRecordToForm);
+document.getElementById("repFromBoard").onclick=fillFromBoard;
+document.getElementById("repClear").onclick=()=>clearForm(true);
+document.getElementById("repSave").onclick=()=>{
+  const r=readForm();if(!r.date){alert("เลือกวันที่ก่อน");return;}
+  state.reports[r.date+"|"+r.shift]=r;save();renderHistory();
+  const btn=document.getElementById("repSave");btn.textContent="✓ บันทึกแล้ว";setTimeout(()=>btn.textContent="💾 บันทึกเวรนี้",1200);
 };
-document.getElementById("btnClear").onclick=()=>{
-  if(confirm("ล้างการลงแพทย์/ผู้ป่วยทุกเตียง? (โครงสร้างเตียงและสีคงเดิม)")){
-    allBeds().forEach(b=>{ b.doctorId=null; b.patient=""; b.note=""; }); save(); renderAll();
-  }
-};
-document.getElementById("btnExport").onclick=()=>{
-  const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
-  const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
-  a.download="ward-board-"+new Date().toISOString().slice(0,10)+".json"; a.click();
-};
+function renderHistory(){
+  const keys=sortedKeys().reverse();
+  document.getElementById("histCount").textContent=keys.length?`(${keys.length} เวร)`:"(ยังไม่มี)";
+  const t=document.getElementById("histTable");
+  const H=["วันที่","เวร","ยกมา","รับ","จำหน่าย","OR","สามัญ","แยก","รวม","ชม.ต้องการ","Product",""];
+  let html="<tr>"+H.map(h=>`<th>${h}</th>`).join("")+"</tr>";
+  keys.forEach(k=>{
+    const r=state.reports[k],c=computed(r);
+    const admits=r.anew+r.tin+r.rin,dc=r.dc+r.rb+r.ro+r.dead+r.icu+r.dept;
+    const prodCol=c.AD>=100?"#22c55e":(c.AD>0?"#f59e0b":"#94a3b8");
+    html+=`<tr>
+      <td>${r.date}</td><td><b>${r.shift}</b></td><td>${r.carry}</td><td>${admits}</td><td>${dc}</td><td>${r.or}</td>
+      <td>${c.O}</td><td>${r.iso}</td><td><b>${c.Q}</b></td><td>${c.AC.toFixed(1)}</td>
+      <td style="color:${prodCol};font-weight:700">${c.AD?c.AD.toFixed(1):"—"}</td>
+      <td><button class="sm" data-k="${k}">🗑</button></td></tr>`;
+  });
+  t.innerHTML=html;
+  t.querySelectorAll("button[data-k]").forEach(b=>b.onclick=()=>{if(confirm("ลบเวรนี้?")){delete state.reports[b.dataset.k];save();renderHistory();}});
+}
+
+/* ---------- Excel export (matches template layout + live formulas) ---------- */
+function exportExcel(scope){
+  if(typeof XLSX==="undefined"){alert("โหลดตัวสร้าง Excel ไม่สำเร็จ (ต้องต่อเน็ตครั้งแรก) — กำลัง export เป็น CSV แทน");exportCSV(scope);return;}
+  let keys=sortedKeys();
+  let fname="report_all";
+  if(scope==="day"){const d=document.getElementById("repDate").value;keys=keys.filter(k=>k.startsWith(d+"|"));fname="report_"+d;}
+  if(!keys.length){alert("ยังไม่มีข้อมูลที่บันทึกไว้สำหรับช่วงนี้");return;}
+  // Header rows (aoa). 31 columns A..AE
+  const T="รายงานยอดคนไข้และ Product";
+  const aoa=[];
+  aoa.push([T]); aoa.push([]); // r1,r2 (title merged)
+  // r3
+  const r3=new Array(31).fill("");
+  r3[0]="วันที่เดือนปี";r3[1]="เวร";r3[2]="ยอดยกมา";r3[3]="รับ";r3[6]="จำหน่าย";r3[12]="OR";r3[13]="อื่นๆ";r3[14]="คงพยาบาล";r3[17]="ประเภทผู้ป่วย";r3[27]="ชม.บริหาร";r3[28]="ชม.ที่ผป.ต้องการ";r3[29]="Product";
+  aoa.push(r3);
+  // r4
+  const r4=new Array(31).fill("");
+  r4[3]="รับใหม่";r4[4]="รับย้าย";r4[5]="รับRefer";r4[6]="แพทย์อนุญาต";r4[7]="Refer back";r4[8]="Refer out";r4[9]="Dead";r4[10]="ย้าย ICU";r4[11]="ย้ายแผนก";r4[14]="สามัญ";r4[15]="แยก";r4[16]="รวม";r4[17]="5";r4[19]="4";r4[21]="3";r4[23]="2";r4[25]="1";
+  aoa.push(r4);
+  // r5
+  const r5=new Array(31).fill("");
+  r5[17]="จำนวน";r5[18]="12";r5[19]="จำนวน";r5[20]="7.5";r5[21]="จำนวน";r5[22]="5.5";r5[23]="จำนวน";r5[24]="3.5";r5[25]="จำนวน";r5[26]="1.5";
+  aoa.push(r5);
+  // data rows start at row 6 (index 5)
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  let rIdx=6;
+  const col=n=>XLSX.utils.encode_col(n);
+  keys.forEach(k=>{
+    const r=state.reports[k];const R=rIdx;const cc=computed(r);
+    // formula cells need a cached numeric value or SheetJS drops them on write
+    const set=(c,v,f)=>{const ref=col(c)+R;const cell={};if(typeof v==="number"){cell.t="n";cell.v=v;}else if(v!=null&&v!==""){cell.t="s";cell.v=v;}if(f){cell.t="n";cell.f=f;}if(cell.t)ws[ref]=cell;};
+    // Thai year date string dd/mm/yyyy(พ.ศ.)
+    const [Y,M,D]=r.date.split("-");
+    set(0, `${D}/${M}/${(+Y)+543}`);
+    set(1, r.shift);
+    set(2, r.carry); set(3, r.anew); set(4, r.tin); set(5, r.rin);
+    set(6, r.dc); set(7, r.rb); set(8, r.ro); set(9, r.dead); set(10, r.icu); set(11, r.dept);
+    set(12, r.or); set(13, r.other);
+    set(14, cc.O, `C${R}+D${R}+E${R}+F${R}-G${R}-H${R}-I${R}-J${R}-K${R}-L${R}`); // O
+    set(15, r.iso); // P
+    set(16, cc.Q, `O${R}+P${R}`); // Q
+    set(17, r.ac5); set(18, r.ac5*12,  `R${R}*12`);
+    set(19, r.ac4); set(20, r.ac4*7.5, `T${R}*7.5`);
+    set(21, r.ac3); set(22, r.ac3*5.5, `V${R}*5.5`);
+    set(23, r.ac2); set(24, r.ac2*3.5, `X${R}*3.5`);
+    set(25, r.ac1); set(26, r.ac1*1.5, `Z${R}*1.5`);
+    set(27, r.admin); // AB
+    set(28, cc.AC, `S${R}+U${R}+W${R}+Y${R}+AA${R}`); // AC
+    set(29, r.admin>0?cc.AD:0, `AC${R}/3/AB${R}*100`); // AD
+    rIdx++;
+  });
+  ws["!ref"]=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:rIdx-1,c:30}});
+  ws["!merges"]=[
+    {s:{r:0,c:0},e:{r:1,c:30}},{s:{r:2,c:3},e:{r:2,c:5}},{s:{r:2,c:6},e:{r:2,c:11}},
+    {s:{r:2,c:14},e:{r:2,c:16}},{s:{r:2,c:17},e:{r:2,c:26}}
+  ];
+  ws["!cols"]=new Array(31).fill({wch:6});ws["!cols"][0]={wch:12};
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"รายงาน");
+  XLSX.writeFile(wb,fname+".xlsx");
+}
+function exportCSV(scope){
+  let keys=sortedKeys();
+  if(scope==="day"){const d=document.getElementById("repDate").value;keys=keys.filter(k=>k.startsWith(d+"|"));}
+  const head=["วันที่","เวร","ยกมา","รับใหม่","รับย้าย","รับRefer","แพทย์อนุญาต","Referback","Referout","Dead","ย้ายICU","ย้ายแผนก","OR","อื่นๆ","สามัญ(O)","แยก(P)","รวม(Q)","lvl5","lvl4","lvl3","lvl2","lvl1","ชม.บริหาร","ชม.ต้องการ(AC)","Product(AD)"];
+  const rows=[head];
+  keys.forEach(k=>{const r=state.reports[k],c=computed(r);rows.push([r.date,r.shift,r.carry,r.anew,r.tin,r.rin,r.dc,r.rb,r.ro,r.dead,r.icu,r.dept,r.or,r.other,c.O,r.iso,c.Q,r.ac5,r.ac4,r.ac3,r.ac2,r.ac1,r.admin,c.AC.toFixed(1),c.AD.toFixed(1)]);});
+  const csv="﻿"+rows.map(r=>r.join(",")).join("\n");
+  const blob=new Blob([csv],{type:"text/csv"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=(scope==="day"?"report_"+document.getElementById("repDate").value:"report_all")+".csv";a.click();
+}
+document.getElementById("repExportDay").onclick=()=>exportExcel("day");
+document.getElementById("repExportAll").onclick=()=>exportExcel("all");
 
 /* ---------- init ---------- */
-function renderAll(){ renderDocs(); renderHint(); renderSummary(); renderMap(); }
-state=load();
-renderAll();
+function renderAll(){renderDocs();renderHint();renderSummary();renderMap();renderCurrentBar();}
+state=load();renderAll();
 </script>
 </body>
 </html>

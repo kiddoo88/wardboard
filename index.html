@@ -40,7 +40,6 @@
   /* event action boxes in bed modal */
   #admitBox,#dischargeBox{border:1px dashed var(--line);border-radius:10px;padding:10px;margin-bottom:12px}
   #admitBox label,#dischargeBox label{font-weight:700;color:var(--text)}
-  .seg .o.sel{border-color:#fff;background:var(--panel2)}
   .evlog{font-size:12px;max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:10px}
   .evlog .row{display:flex;align-items:center;gap:8px;padding:5px 8px;border-bottom:1px solid var(--line)}
   .evlog .row:last-child{border-bottom:none}
@@ -184,7 +183,7 @@
       </div>
       <button class="sm" id="repFromBoard">↻ ดึงค่าจากผังเตียง</button>
       <div class="spacer"></div>
-      <button class="sm" id="repExportDay">⬇ Export วันนี้ (Excel)</button>
+      <button class="sm" id="repExportDay">⬇ Export วันที่เลือก (Excel)</button>
       <button class="sm" id="repExportAll">⬇ Export ทั้งหมด</button>
     </div>
 
@@ -348,11 +347,12 @@ function defaultState(){
     schemaV:3
   };
 }
-function todayISO(){return new Date().toISOString().slice(0,10);}
+function todayISO(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");} // ใช้เวลาท้องถิ่น (ไม่ใช่ UTC) — สำคัญกับเวรดึกก่อน 07:00
 function guessShift(){const h=new Date().getHours();return h<8?"ด":(h<16?"ช":"บ");}
 function migrate(s){
   if(!s.events)s.events=[];
   if(!s.current)s.current={date:todayISO(),shift:guessShift()};
+  if(s.doctors)s.doctors.forEach(d=>{if(!d.sai)d.sai="A";}); // แพทย์จาก schema เก่าไม่มีสาย → ไม่งั้นหายจากแถบ brush
   if(s.schemaV>=3)return s;
   const findSec=id=>s.sections.find(x=>x.id===id);
   const block=(id,base,name)=>{const sec=findSec(id);if(sec){sec.layout="cw";sec.name=name;sec.beds.forEach((b,i)=>b.label=String(base+i));}};
@@ -366,11 +366,15 @@ function migrate(s){
 
 let state,activeDoc=null,curBed=null;
 
-function load(){try{const s=JSON.parse(localStorage.getItem(LS_KEY));if(s&&s.doctors&&s.sections){if(!s.reports)s.reports={};s.sections.forEach(sec=>sec.beds.forEach(b=>{if(b.acuity===undefined)b.acuity=0;if(b.iso===undefined)b.iso=(sec.type==="isolation");}));return migrate(s);}}catch(e){}return defaultState();}
+function normalize(s){
+  if(!s.reports)s.reports={};
+  s.sections.forEach(sec=>sec.beds.forEach(b=>{if(b.acuity===undefined)b.acuity=0;if(b.iso===undefined)b.iso=(sec.type==="isolation");}));
+  return migrate(s);
+}
+function load(){try{const s=JSON.parse(localStorage.getItem(LS_KEY));if(s&&s.doctors&&s.sections)return normalize(s);}catch(e){}return defaultState();}
 function save(){try{localStorage.setItem(LS_KEY,JSON.stringify(state));}catch(e){}}
 function docById(id){return state.doctors.find(d=>d.id===id)||null;}
 function allBeds(){return state.sections.flatMap(s=>s.beds);}
-function occBeds(){return allBeds().filter(b=>b.patient||b.doctorId||b.acuity);} // "occupied" = has any patient data
 function contrast(hex){const c=hex.replace('#','');const r=parseInt(c.substr(0,2),16),g=parseInt(c.substr(2,2),16),b=parseInt(c.substr(4,2),16);return (r*299+g*587+b*114)/1000>150?"#0b1220":"#fff";}
 function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function numSort(a,b){const na=parseFloat(a.label),nb=parseFloat(b.label);const va=isNaN(na)?Infinity:na,vb=isNaN(nb)?Infinity:nb;if(va!==vb)return va-vb;return String(a.label).localeCompare(String(b.label));}
@@ -438,7 +442,14 @@ function renderMap(){
     head.innerHTML=`<span class="title">${escapeHtml(sec.name)}</span><span class="tag">${occ}/${sec.beds.length} เตียง</span>`;
     const tools=document.createElement("div");tools.className="sec-tools";
     const addb=document.createElement("button");addb.className="sm";addb.textContent="+ เตียง";
-    addb.onclick=()=>{const nums=sec.beds.map(b=>parseFloat(b.label)).filter(n=>!isNaN(n));const nx=(nums.length?Math.max(...nums):0)+1;sec.beds.push(bed(sec.id+"-"+Date.now(),String(nx),sec.type==="isolation"));if(sec.layout!=="cw")sec.beds.sort(numSort);save();renderAll();};
+    addb.onclick=()=>{
+      // หาเลขจาก "ทั้งผัง" กันเลขซ้ำข้าม section (เลขซ้ำทำให้ย้ายผู้ป่วยตามเลขผิดเตียง)
+      const nums=sec.beds.map(b=>parseFloat(b.label)).filter(n=>!isNaN(n));
+      let nx=(nums.length?Math.max(...nums):0)+1;
+      const labels=new Set(allBeds().map(b=>b.label));
+      while(labels.has(String(nx)))nx++;
+      sec.beds.push(bed(sec.id+"-"+Date.now(),String(nx),sec.type==="isolation"));
+      if(sec.layout!=="cw")sec.beds.sort(numSort);save();renderAll();};
     tools.appendChild(addb);head.appendChild(tools);wrap.appendChild(head);
     const grid=document.createElement("div");grid.className="beds "+sec.type;
     let renderBeds=sec.beds;
@@ -499,7 +510,13 @@ document.querySelectorAll("#bedAcu .o").forEach(o=>o.onclick=()=>document.queryS
 document.querySelectorAll("#admitType .o").forEach(o=>o.onclick=()=>document.querySelectorAll("#admitType .o").forEach(x=>x.classList.toggle("sel",x===o)));
 document.querySelectorAll("#dischargeType .o").forEach(o=>o.onclick=()=>document.querySelectorAll("#dischargeType .o").forEach(x=>x.classList.toggle("sel",x===o)));
 document.getElementById("btnAdmit").onclick=()=>{
-  if(!curBed)return;const b=curBed.b;applyFields(b);
+  if(!curBed)return;const b=curBed.b;
+  // ตรวจก่อนแก้ข้อมูลเตียง — กัน event ปลอมบนเตียงว่าง และกัน mutate ค้างถ้า logEvent ล้มเหลว
+  const patient=document.getElementById("bedPatient").value.trim();
+  const docSel=document.querySelector("#bedDocPick .p.sel");
+  if(!patient&&!(docSel&&docSel.dataset.id)){alert("ใส่ชื่อผู้ป่วยหรือเลือกแพทย์ก่อนบันทึกการรับเข้า");return;}
+  if(!state.current||!state.current.date){alert("ตั้งวันที่เวรที่กำลังบันทึกก่อน (แถบบนหน้าผังเตียง)");return;}
+  applyFields(b);
   const t=document.querySelector("#admitType .o.sel");const type=t?t.dataset.t:"admitNew";
   if(logEvent(type,b)){save();closeBed();renderAll();toast("รับเข้า: "+EV_LABEL[type]);}
 };
@@ -527,7 +544,7 @@ document.getElementById("bedSave").onclick=()=>{
   }
   save();closeBed();renderAll();
 };
-document.getElementById("bedClear").onclick=()=>{if(!curBed)return;const b=curBed.b;b.doctorId=null;b.patient="";b.note="";b.acuity=0;save();closeBed();renderAll();};
+document.getElementById("bedClear").onclick=()=>{if(!curBed)return;const b=curBed.b;b.doctorId=null;b.patient="";b.note="";b.acuity=0;b.iso=(curBed.sec.type==="isolation");save();closeBed();renderAll();};
 document.getElementById("bedCancel").onclick=closeBed;
 document.getElementById("bedOverlay").onclick=(e)=>{if(e.target.id==="bedOverlay")closeBed();};
 
@@ -554,8 +571,8 @@ document.getElementById("bkClose").onclick=()=>document.getElementById("bkOverla
 document.getElementById("bkOverlay").onclick=(e)=>{if(e.target.id==="bkOverlay")e.currentTarget.classList.remove("open");};
 document.getElementById("bkExport").onclick=()=>{const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="ward-backup-"+new Date().toISOString().slice(0,10)+".json";a.click();};
 document.getElementById("bkImport").onclick=()=>document.getElementById("bkFile").click();
-document.getElementById("bkFile").onchange=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const s=JSON.parse(r.result);if(s.doctors&&s.sections){state=s;if(!state.reports)state.reports={};save();renderAll();renderReportTab();alert("กู้คืนสำเร็จ");document.getElementById("bkOverlay").classList.remove("open");}else alert("ไฟล์ไม่ถูกต้อง");}catch(err){alert("อ่านไฟล์ไม่ได้");}};r.readAsText(f);};
-document.getElementById("bkClearAssign").onclick=()=>{if(confirm("ล้างผู้ป่วย/แพทย์/acuity ทุกเตียง? (โครงสร้างเตียงคงเดิม)")){allBeds().forEach(b=>{b.doctorId=null;b.patient="";b.note="";b.acuity=0;});save();renderAll();}};
+document.getElementById("bkFile").onchange=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const s=JSON.parse(r.result);if(s.doctors&&s.sections){state=normalize(s);save();renderAll();_repInit=false;renderReportTab();alert("กู้คืนสำเร็จ");document.getElementById("bkOverlay").classList.remove("open");}else alert("ไฟล์ไม่ถูกต้อง");}catch(err){alert("อ่านไฟล์ไม่ได้");}};r.readAsText(f);};
+document.getElementById("bkClearAssign").onclick=()=>{if(confirm("ล้างผู้ป่วย/แพทย์/acuity ทุกเตียง? (โครงสร้างเตียงคงเดิม)")){state.sections.forEach(sec=>sec.beds.forEach(b=>{b.doctorId=null;b.patient="";b.note="";b.acuity=0;b.iso=(sec.type==="isolation");}));save();renderAll();}};
 
 /* ---------- tabs ---------- */
 document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
@@ -617,17 +634,20 @@ function buildAcuityInputs(){
     box.appendChild(d);
   });
 }
-function fillFromBoard(){
-  const s=boardSnapshot();
-  document.getElementById("a5").value=s.ac[5];document.getElementById("a4").value=s.ac[4];
-  document.getElementById("a3").value=s.ac[3];document.getElementById("a2").value=s.ac[2];document.getElementById("a1").value=s.ac[1];
-  document.getElementById("f_iso").value=s.iso;
+function refreshTallies(){ // เติมเฉพาะ D–N จาก event (ไม่แตะ acuity/แยก/ยกมา ที่ user อาจแก้ทับไว้)
   const date=document.getElementById("repDate").value,sh=document.getElementById("repShift").value;
   const t=tallyEvents(date,sh);
   document.getElementById("f_new").value=t.admitNew;document.getElementById("f_tin").value=t.admitTransfer;document.getElementById("f_rin").value=t.admitRefer;
   document.getElementById("f_dc").value=t.dcAllow;document.getElementById("f_rb").value=t.referBack;document.getElementById("f_ro").value=t.referOut;
   document.getElementById("f_dead").value=t.dead;document.getElementById("f_icu").value=t.icu;document.getElementById("f_dept").value=t.dept;
   document.getElementById("f_or").value=t.or;document.getElementById("f_other").value=t.other;
+}
+function fillFromBoard(){
+  const s=boardSnapshot();
+  document.getElementById("a5").value=s.ac[5];document.getElementById("a4").value=s.ac[4];
+  document.getElementById("a3").value=s.ac[3];document.getElementById("a2").value=s.ac[2];document.getElementById("a1").value=s.ac[1];
+  document.getElementById("f_iso").value=s.iso;
+  refreshTallies();
   const pq=prevQ();if(pq!==null&&!document.getElementById("f_carry").value)document.getElementById("f_carry").value=pq;
   updateCalc();renderEventLog();
 }
@@ -639,14 +659,14 @@ function renderEventLog(){
   if(!evs.length){box.innerHTML='<div class="row" style="color:var(--muted)">ยังไม่มีเหตุการณ์ในเวรนี้ — ไปที่หน้าผังเตียง กดรับ/จำหน่าย/ส่ง OR ที่เตียง จะถูกนับมาที่นี่เอง</div>';return;}
   box.innerHTML=evs.map(e=>{const tm=new Date(e.ts).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});
     return `<div class="row"><span class="t ${evClass(e.type)}">${EV_LABEL[e.type]}</span><span>เตียง ${escapeHtml(e.bedLabel)}</span><span style="color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(e.patient||"")}</span><span style="color:var(--muted)">${tm}</span><button class="sm" data-ev="${e.id}">🗑</button></div>`;}).join("");
-  box.querySelectorAll("button[data-ev]").forEach(btn=>btn.onclick=()=>{if(confirm("ลบเหตุการณ์นี้? (รายงานจะนับใหม่)")){state.events=state.events.filter(x=>x.id!==btn.dataset.ev);save();fillFromBoard();renderCurrentBar();}});
+  box.querySelectorAll("button[data-ev]").forEach(btn=>btn.onclick=()=>{if(confirm("ลบเหตุการณ์นี้? (รายงานจะนับใหม่)")){state.events=state.events.filter(x=>x.id!==btn.dataset.ev);save();refreshTallies();updateCalc();renderEventLog();renderCurrentBar();}});
 }
 function loadRecordToForm(){
   const rec=state.reports[repKey()];
   const setv=(id,v)=>document.getElementById(id).value=(v===0||v)?v:"";
   if(rec){
     setv("a5",rec.ac5);setv("a4",rec.ac4);setv("a3",rec.ac3);setv("a2",rec.ac2);setv("a1",rec.ac1);
-    setv("f_gen",rec.gen);setv("f_iso",rec.iso);setv("f_carry",rec.carry);setv("f_new",rec.anew);
+    setv("f_iso",rec.iso);setv("f_carry",rec.carry);setv("f_new",rec.anew);
     setv("f_tin",rec.tin);setv("f_rin",rec.rin);setv("f_dc",rec.dc);setv("f_rb",rec.rb);setv("f_ro",rec.ro);
     setv("f_dead",rec.dead);setv("f_icu",rec.icu);setv("f_dept",rec.dept);setv("f_or",rec.or);setv("f_other",rec.other);setv("f_admin",rec.admin);
     updateCalc();
@@ -657,12 +677,18 @@ function clearForm(fill){
   ["a5","a4","a3","a2","a1","f_iso","f_carry","f_new","f_tin","f_rin","f_dc","f_rb","f_ro","f_dead","f_icu","f_dept","f_or","f_other","f_admin"].forEach(id=>document.getElementById(id).value="");
   if(fill)fillFromBoard();else updateCalc();
 }
+let _repInit=false;
 function renderReportTab(){
-  document.getElementById("repDate").value=state.current.date;
-  document.getElementById("repShift").value=state.current.shift;
-  buildAcuityInputs();
-  document.querySelectorAll("#view-report input").forEach(i=>{i.oninput=updateCalc;});
-  loadRecordToForm();
+  if(!_repInit){ // เปิดครั้งแรก (หรือหลังกู้คืน) ค่อยตั้งวัน/เวรตามเวรปัจจุบัน — ครั้งถัดไปคงค่าที่ user เลือกไว้
+    _repInit=true;
+    document.getElementById("repDate").value=state.current.date;
+    document.getElementById("repShift").value=state.current.shift;
+    buildAcuityInputs();
+    document.querySelectorAll("#view-report input").forEach(i=>{i.oninput=updateCalc;});
+    loadRecordToForm();
+  }else{
+    updateCalc();renderEventLog();
+  }
   renderHistory();
 }
 document.getElementById("repDate").addEventListener("change",loadRecordToForm);
@@ -742,13 +768,24 @@ function exportExcel(scope){
     set(25, r.ac1); set(26, r.ac1*1.5, `Z${R}*1.5`);
     set(27, r.admin); // AB
     set(28, cc.AC, `S${R}+U${R}+W${R}+Y${R}+AA${R}`); // AC
-    set(29, r.admin>0?cc.AD:0, `AC${R}/3/AB${R}*100`); // AD
+    set(29, r.admin>0?cc.AD:0, `IF(AB${R}>0,AC${R}/3/AB${R}*100,0)`); // AD — กัน #DIV/0! เมื่อยังไม่กรอกชม.บริหาร
     rIdx++;
   });
   ws["!ref"]=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:rIdx-1,c:30}});
   ws["!merges"]=[
     {s:{r:0,c:0},e:{r:1,c:30}},{s:{r:2,c:3},e:{r:2,c:5}},{s:{r:2,c:6},e:{r:2,c:11}},
-    {s:{r:2,c:14},e:{r:2,c:16}},{s:{r:2,c:17},e:{r:2,c:26}}
+    {s:{r:2,c:14},e:{r:2,c:16}},{s:{r:2,c:17},e:{r:2,c:26}},
+    // vertical merges ให้หัวตารางตรงต้นฉบับ: A–C, M–N, AB–AD กินแถว 3–5 · หัวย่อยแถว 4 กินแถว 4–5
+    {s:{r:2,c:0},e:{r:4,c:0}},{s:{r:2,c:1},e:{r:4,c:1}},{s:{r:2,c:2},e:{r:4,c:2}},
+    {s:{r:2,c:12},e:{r:4,c:12}},{s:{r:2,c:13},e:{r:4,c:13}},
+    {s:{r:2,c:27},e:{r:4,c:27}},{s:{r:2,c:28},e:{r:4,c:28}},{s:{r:2,c:29},e:{r:4,c:29}},
+    {s:{r:3,c:3},e:{r:4,c:3}},{s:{r:3,c:4},e:{r:4,c:4}},{s:{r:3,c:5},e:{r:4,c:5}},
+    {s:{r:3,c:6},e:{r:4,c:6}},{s:{r:3,c:7},e:{r:4,c:7}},{s:{r:3,c:8},e:{r:4,c:8}},
+    {s:{r:3,c:9},e:{r:4,c:9}},{s:{r:3,c:10},e:{r:4,c:10}},{s:{r:3,c:11},e:{r:4,c:11}},
+    {s:{r:3,c:14},e:{r:4,c:14}},{s:{r:3,c:15},e:{r:4,c:15}},{s:{r:3,c:16},e:{r:4,c:16}},
+    // เลขระดับ acuity (5,4,3,2,1) คร่อมคู่คอลัมน์ จำนวน+น้ำหนัก
+    {s:{r:3,c:17},e:{r:3,c:18}},{s:{r:3,c:19},e:{r:3,c:20}},{s:{r:3,c:21},e:{r:3,c:22}},
+    {s:{r:3,c:23},e:{r:3,c:24}},{s:{r:3,c:25},e:{r:3,c:26}}
   ];
   ws["!cols"]=new Array(31).fill({wch:6});ws["!cols"][0]={wch:12};
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"รายงาน");
@@ -760,7 +797,8 @@ function exportCSV(scope){
   const head=["วันที่","เวร","ยกมา","รับใหม่","รับย้าย","รับRefer","แพทย์อนุญาต","Referback","Referout","Dead","ย้ายICU","ย้ายแผนก","OR","อื่นๆ","สามัญ(O)","แยก(P)","รวม(Q)","lvl5","lvl4","lvl3","lvl2","lvl1","ชม.บริหาร","ชม.ต้องการ(AC)","Product(AD)"];
   const rows=[head];
   keys.forEach(k=>{const r=state.reports[k],c=computed(r);rows.push([r.date,r.shift,r.carry,r.anew,r.tin,r.rin,r.dc,r.rb,r.ro,r.dead,r.icu,r.dept,r.or,r.other,c.O,r.iso,c.Q,r.ac5,r.ac4,r.ac3,r.ac2,r.ac1,r.admin,c.AC.toFixed(1),c.AD.toFixed(1)]);});
-  const csv="﻿"+rows.map(r=>r.join(",")).join("\n");
+  const q=v=>{v=String(v??"");return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+  const csv="﻿"+rows.map(r=>r.map(q).join(",")).join("\n");
   const blob=new Blob([csv],{type:"text/csv"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=(scope==="day"?"report_"+document.getElementById("repDate").value:"report_all")+".csv";a.click();
 }
 document.getElementById("repExportDay").onclick=()=>exportExcel("day");

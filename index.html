@@ -247,7 +247,6 @@
 <div class="overlay" id="bedOverlay">
   <div class="modal">
     <h3 id="bedTitle">เตียง</h3>
-    <div class="field"><label>ย้ายผู้ป่วยไปเตียงเลขที่ <span class="auto-tag">(เลขเตียงคงที่ตามตำแหน่งจริง · พิมพ์เลขปลายทางเพื่อย้าย/สลับ)</span></label><input type="text" id="bedLabel"></div>
     <div class="field"><label>แพทย์เจ้าของไข้</label><div class="doc-pick" id="bedDocPick"></div></div>
     <div class="field"><label>ชื่อผู้ป่วย</label><input type="text" id="bedPatient" placeholder="เว้นว่าง = เตียงว่าง"></div>
     <div class="field"><label>HN</label><input type="text" id="bedHn" placeholder="เช่น 1234567"></div>
@@ -265,7 +264,6 @@
       <div class="seg" id="admitType" style="margin-top:8px">
         <div class="o sel" data-t="admitNew">รับใหม่</div><div class="o" data-t="admitTransfer">รับย้าย</div><div class="o" data-t="admitRefer">รับ Refer</div>
       </div>
-      <button class="primary" id="btnAdmit" style="margin-top:10px;width:100%">＋ บันทึกการรับเข้า</button>
     </div>
 
     <div id="dischargeBox">
@@ -274,17 +272,14 @@
         <div class="o sel" data-t="dcAllow">แพทย์อนุญาต</div><div class="o" data-t="referBack">Refer back</div><div class="o" data-t="referOut">Refer out</div>
         <div class="o" data-t="dead">Dead</div><div class="o" data-t="icu">ย้าย ICU</div><div class="o" data-t="dept">ย้ายแผนก</div><div class="o" data-t="other">หนี/ปฏิเสธ</div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <button id="btnDischarge" style="flex:1">จำหน่าย (ล้างเตียง)</button>
-        <button id="btnOR">🔪 ส่ง OR</button>
-      </div>
+      <button id="btnOR" style="margin-top:10px;width:100%">🔪 ส่ง OR</button>
     </div>
 
     <div class="modal-actions">
       <button id="bedClear" title="ล้างข้อมูลโดยไม่นับเป็นการจำหน่าย (ใช้ตอนตั้งค่า/แก้ผิด)">ล้าง (ไม่นับ)</button>
       <div class="spacer"></div>
       <button id="bedCancel">ยกเลิก</button>
-      <button class="primary" id="bedSave">บันทึกข้อมูล</button>
+      <button class="primary" id="bedSave">＋ บันทึกรับเข้า</button>
     </div>
   </div>
 </div>
@@ -600,7 +595,7 @@ function renderMap(){
       cell.querySelector(".rm-bed").onclick=(e)=>{e.stopPropagation();if(confirm("ลบ "+sec.name+" เตียง "+b.label+" ?")){sec.beds=sec.beds.filter(x=>x.id!==b.id);save();renderAll();}};
       cell.querySelector(".i").onclick=(e)=>{e.stopPropagation();openBed(sec,b);};
       cell.onclick=()=>{if(document.body.classList.contains("editing")){openBed(sec,b);return;}if(activeDoc){
-        if(!has){openBed(sec,b);selDoc(activeDoc);toast("เลือกผู้ป่วยแล้วกด “บันทึกการรับเข้า” เพื่อให้นับยอด");return;}
+        if(!has){openBed(sec,b);selDoc(activeDoc);toast("เลือกผู้ป่วยแล้วกด “+ บันทึกรับเข้า” เพื่อให้นับยอด");return;}
         b.doctorId=b.doctorId===activeDoc?null:activeDoc;audit("เปลี่ยนแพทย์เจ้าของไข้",{bedLabel:b.label,doctorId:b.doctorId});save();renderAll();
       }else openBed(sec,b);};
       grid.appendChild(cell);
@@ -610,9 +605,9 @@ function renderMap(){
 }
 /* ---------- bed modal ---------- */
 function openBed(sec,b){
-  curBed={sec,b};
+  const occupied=!!(b.patient||b.doctorId||b.acuity);
+  curBed={sec,b,mode:occupied?"discharge":"admit"};
   document.getElementById("bedTitle").textContent=sec.name+" · เตียง "+b.label;
-  document.getElementById("bedLabel").value=b.label;
   document.getElementById("bedPatient").value=b.patient||"";
   document.getElementById("bedHn").value=b.hn||"";
   document.getElementById("bedNote").value=b.note||"";
@@ -622,9 +617,9 @@ function openBed(sec,b){
   const none=document.createElement("div");none.className="p"+(b.doctorId?"":" sel");none.dataset.id="";none.innerHTML=`<span class="dot" style="background:#475569"></span>ว่าง`;none.onclick=()=>selDoc("");pick.appendChild(none);
   state.doctors.forEach(d=>{const p=document.createElement("div");p.className="p"+(b.doctorId===d.id?" sel":"");p.dataset.id=d.id;p.innerHTML=`<span class="dot" style="background:${d.color}"></span>${escapeHtml(d.name)}`;p.onclick=()=>selDoc(d.id);pick.appendChild(p);});
   // show admit vs discharge based on occupancy; reset default type selections
-  const occupied=!!(b.patient||b.doctorId||b.acuity);
   document.getElementById("admitBox").style.display=occupied?"none":"block";
   document.getElementById("dischargeBox").style.display=occupied?"block":"none";
+  document.getElementById("bedSave").textContent=occupied?"Discharge":"＋ บันทึกรับเข้า";
   document.querySelectorAll("#admitType .o").forEach((o,i)=>o.classList.toggle("sel",i===0));
   document.querySelectorAll("#dischargeType .o").forEach((o,i)=>o.classList.toggle("sel",i===0));
   document.getElementById("bedOverlay").classList.add("open");
@@ -642,7 +637,7 @@ function selDoc(id){document.querySelectorAll("#bedDocPick .p").forEach(p=>p.cla
 document.querySelectorAll("#bedAcu .o").forEach(o=>o.onclick=()=>document.querySelectorAll("#bedAcu .o").forEach(x=>x.classList.toggle("sel",x===o)));
 document.querySelectorAll("#admitType .o").forEach(o=>o.onclick=()=>document.querySelectorAll("#admitType .o").forEach(x=>x.classList.toggle("sel",x===o)));
 document.querySelectorAll("#dischargeType .o").forEach(o=>o.onclick=()=>document.querySelectorAll("#dischargeType .o").forEach(x=>x.classList.toggle("sel",x===o)));
-document.getElementById("btnAdmit").onclick=()=>{
+function saveAdmission(){
   if(!curBed)return;const b=curBed.b;
   // ตรวจก่อนแก้ข้อมูลเตียง — กัน event ปลอมบนเตียงว่าง และกัน mutate ค้างถ้า logEvent ล้มเหลว
   const patient=document.getElementById("bedPatient").value.trim();
@@ -653,33 +648,23 @@ document.getElementById("btnAdmit").onclick=()=>{
   applyFields(b);
   const t=document.querySelector("#admitType .o.sel");const type=t?t.dataset.t:"admitNew";
   if(logEvent(type,b)){save();closeBed();renderAll();toast("รับเข้า: "+EV_LABEL[type]);}
-};
-document.getElementById("btnDischarge").onclick=()=>{
+}
+function saveDischarge(){
   if(!curBed)return;const b=curBed.b;
   b.patient=document.getElementById("bedPatient").value.trim()||b.patient;
   const t=document.querySelector("#dischargeType .o.sel");const type=t?t.dataset.t:"dcAllow";
   if(!confirmCurrent("ยืนยันการจำหน่าย / ส่งต่อ"))return;
   if(logEvent(type,b)){b.doctorId=null;b.patient="";b.hn="";b.note="";b.acuity=0;b.patientIso=false;save();closeBed();renderAll();toast("จำหน่าย: "+EV_LABEL[type]);}
-};
+}
 document.getElementById("btnOR").onclick=()=>{
   if(!curBed)return;const b=curBed.b;b.patient=document.getElementById("bedPatient").value.trim()||b.patient;
   if(!confirmCurrent("ยืนยันการส่ง OR"))return;
   if(logEvent("or",b)){applyFields(b);save();closeBed();renderAll();toast("ส่ง OR แล้ว");}
 };
 function closeBed(){document.getElementById("bedOverlay").classList.remove("open");curBed=null;}
-function swapBedData(a,c){["doctorId","patient","hn","note","acuity","patientIso"].forEach(k=>{const t=a[k];a[k]=c[k];c[k]=t;});}
 document.getElementById("bedSave").onclick=()=>{
-  if(!curBed)return;const {b}=curBed;
-  applyFields(b);
-  // เลขเตียงคงที่ — ถ้าพิมพ์เลขปลายทางต่างจากเตียงนี้ ให้ย้าย/สลับข้อมูลผู้ป่วยไปเตียงนั้น
-  const target=document.getElementById("bedLabel").value.trim();
-  if(target&&target!==b.label){
-    const dest=allBeds().find(x=>x.label===target);
-    if(!dest){alert('ไม่พบเตียงเลข "'+target+'"');return;}
-    swapBedData(b,dest);
-    audit("ย้าย/สลับผู้ป่วย",{from:b.label,to:dest.label});
-  }
-  audit("บันทึกข้อมูลเตียง (ไม่นับเหตุการณ์)",{bedLabel:b.label});save();closeBed();renderAll();
+  if(!curBed)return;
+  if(curBed.mode==="admit")saveAdmission();else saveDischarge();
 };
 document.getElementById("bedClear").onclick=()=>{if(!curBed)return;const b=curBed.b;if(!confirm("ล้างข้อมูลเตียงโดยไม่นับเป็นการจำหน่ายใช่หรือไม่?"))return;audit("ล้างข้อมูลเตียง (ไม่นับเหตุการณ์)",{bedLabel:b.label});b.doctorId=null;b.patient="";b.hn="";b.note="";b.acuity=0;b.patientIso=false;save();closeBed();renderAll();};
 document.getElementById("bedCancel").onclick=closeBed;

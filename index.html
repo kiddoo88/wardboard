@@ -151,6 +151,7 @@
   <div class="spacer"></div>
   <button class="ghost sm" id="btnDocs">👤 แพทย์/สี</button>
   <button class="ghost sm" id="btnEdit">✏️ แก้ไขผังเตียง</button>
+  <button class="ghost sm" id="btnAuditHistory">🕓 ประวัติการแก้ไข</button>
   <button class="ghost sm" id="btnBackup">💾 สำรอง/กู้คืน</button>
   <span class="cnt" id="syncStatus">☁️ ยังไม่ได้เชื่อม</span>
   <button class="ghost sm" id="btnSyncAuth">☁️ เข้าสู่ระบบ Sync</button>
@@ -316,6 +317,17 @@
   </div>
 </div>
 
+<!-- Cloud audit history -->
+<div class="overlay" id="auditOverlay">
+  <div class="modal" style="max-width:760px">
+    <h3>🕓 ประวัติการแก้ไข</h3>
+    <p style="color:var(--muted);font-size:13px;line-height:1.5">บันทึกจากฐานข้อมูล: ผู้แก้ไข, เวลา และค่าเดิม → ค่าใหม่ ประวัติชุดนี้แก้ไขหรือลบจากหน้าเว็บไม่ได้</p>
+    <div class="field"><label>ค้นหา</label><input type="search" id="auditSearch" placeholder="เช่น อีเมล, ชื่อผู้ป่วย, เลขเตียง"></div>
+    <div class="evlog" id="auditHistoryList" style="max-height:430px"></div>
+    <div class="modal-actions"><div class="spacer"></div><button id="auditClose" class="primary">ปิด</button></div>
+  </div>
+</div>
+
 <!-- Cloud sync / sign-in -->
 <div class="overlay" id="syncOverlay">
   <div class="modal">
@@ -390,7 +402,7 @@ function migrate(s){
 }
 
 let state,activeDoc=null,curBed=null;
-let supabaseClient=null,cloudReady=false,cloudVersion=null,cloudUser=null,cloudChannel=null,cloudTimer=null,applyingRemote=false;
+let supabaseClient=null,cloudReady=false,cloudVersion=null,cloudBoardId=null,cloudSnapshot=null,cloudUser=null,cloudChannel=null,cloudTimer=null,applyingRemote=false,auditHistoryRows=[];
 
 function normalize(s){
   if(!s.reports)s.reports={};
@@ -417,32 +429,50 @@ function updateSyncUI(){
   document.getElementById("syncSignOutActions").style.display=signed?"flex":"none";
   document.getElementById("syncHelp").textContent=signed?`เชื่อมด้วย ${cloudUser.email||"อีเมลนี้"} แล้ว การเปลี่ยนแปลงจะ sync ทุกเครื่องแบบ realtime`:"เข้าสู่ระบบด้วยอีเมลที่ผู้ดูแลเพิ่มสิทธิ์ไว้ เพื่อเชื่อมผังเตียงและรายงานแบบ realtime";
 }
-function applyCloudState(data,version){
+function cloudPayload(){const payload=JSON.parse(JSON.stringify(state));delete payload.audit;return payload;}
+function sameJson(a,b){return JSON.stringify(a)===JSON.stringify(b);}
+function makeAuditDiff(before,after,path="",out=[]){
+  if(out.length>=200||sameJson(before,after))return out;
+  const beforeObj=before&&typeof before==="object",afterObj=after&&typeof after==="object";
+  if(Array.isArray(before)&&Array.isArray(after)){
+    const n=Math.max(before.length,after.length);
+    for(let i=0;i<n&&out.length<200;i++)makeAuditDiff(before[i],after[i],`${path}[${i}]`,out);
+    return out;
+  }
+  if(beforeObj&&!Array.isArray(before)&&afterObj&&!Array.isArray(after)){
+    const keys=[...new Set([...Object.keys(before),...Object.keys(after)])].sort();
+    keys.forEach(k=>makeAuditDiff(before[k],after[k],path?`${path}.${k}`:k,out));
+    return out;
+  }
+  out.push({path:path||"ข้อมูลทั้งหมด",before:before===undefined?null:before,after:after===undefined?null:after});
+  return out;
+}
+function applyCloudState(data,version,boardId){
   if(!data||!data.doctors||!data.sections)return false;
-  applyingRemote=true;state=normalize(data);cloudVersion=version;localStorage.setItem(LS_KEY,JSON.stringify(state));applyingRemote=false;
+  applyingRemote=true;state=normalize(data);cloudVersion=version;cloudBoardId=boardId||cloudBoardId;cloudSnapshot=cloudPayload();localStorage.setItem(LS_KEY,JSON.stringify(state));applyingRemote=false;
   renderAll();if(_repInit)renderReportTab();return true;
 }
 async function loadCloud(){
-  const {data,error}=await supabaseClient.from("ward_boards").select("data,version").eq("slug",CLOUD_BOARD_SLUG).maybeSingle();
+  const {data,error}=await supabaseClient.from("ward_boards").select("id,data,version").eq("slug",CLOUD_BOARD_SLUG).maybeSingle();
   if(error||!data){cloudReady=false;setSyncStatus("☁️ อีเมลนี้ยังไม่มีสิทธิ์ Sync");return;}
-  cloudVersion=data.version;cloudReady=true;
-  if(!applyCloudState(data.data,data.version))writeCloud();
+  cloudVersion=data.version;cloudBoardId=data.id;cloudReady=true;
+  if(!applyCloudState(data.data,data.version,data.id)){cloudSnapshot={};writeCloud();}
   setSyncStatus("☁️ Sync realtime แล้ว");
   if(cloudChannel)supabaseClient.removeChannel(cloudChannel);
   cloudChannel=supabaseClient.channel("ward-board-main")
     .on("postgres_changes",{event:"UPDATE",schema:"public",table:"ward_boards",filter:"slug=eq."+CLOUD_BOARD_SLUG},payload=>{
       const next=payload.new;
-      if(next&&Number(next.version)>Number(cloudVersion||0)){applyCloudState(next.data,next.version);toast("☁️ อัปเดตจากเครื่องอื่นแล้ว");}
+      if(next&&Number(next.version)>Number(cloudVersion||0)){applyCloudState(next.data,next.version,next.id);toast("☁️ อัปเดตจากเครื่องอื่นแล้ว");}
     }).subscribe();
 }
 async function writeCloud(){
   if(!cloudReady||!supabaseClient||cloudVersion===null)return;
-  const expected=cloudVersion,body=JSON.parse(JSON.stringify(state));
-  const {data,error}=await supabaseClient.from("ward_boards")
-    .update({data:body,version:expected+1,updated_at:new Date().toISOString(),updated_by:cloudUser&&cloudUser.id||null})
-    .eq("slug",CLOUD_BOARD_SLUG).eq("version",expected).select("version").maybeSingle();
-  if(error||!data){setSyncStatus("☁️ พบการแก้ไขพร้อมกัน — กำลังโหลดข้อมูลล่าสุด");await loadCloud();return;}
-  cloudVersion=data.version;setSyncStatus("☁️ Sync realtime แล้ว");
+  const expected=cloudVersion,body=cloudPayload(),changes=makeAuditDiff(cloudSnapshot||{},body);
+  if(!changes.length)return;
+  const {data,error}=await supabaseClient.rpc("save_ward_board",{p_expected_version:expected,p_data:body,p_changes:changes});
+  const saved=Array.isArray(data)?data[0]:data;
+  if(error||!saved){setSyncStatus("☁️ พบการแก้ไขพร้อมกัน — กำลังโหลดข้อมูลล่าสุด");await loadCloud();return;}
+  cloudVersion=saved.version;cloudSnapshot=body;setSyncStatus("☁️ Sync realtime แล้ว");
 }
 async function connectCloud(){
   if(!window.supabase){setSyncStatus("☁️ โหลดระบบ Sync ไม่สำเร็จ");return;}
@@ -678,6 +708,41 @@ function renderAudit(){
   if(!items.length){box.innerHTML='<div class="row" style="color:var(--muted)">ยังไม่มีประวัติการแก้ไข</div>';return;}
   box.innerHTML=items.map(a=>`<div class="row"><span style="flex:1">${escapeHtml(a.action)}</span><span style="color:var(--muted)">${escapeHtml(a.actor||"ไม่ระบุ")}</span><span style="color:var(--muted)">${new Date(a.ts).toLocaleString("th-TH")}</span></div>`).join("");
 }
+function auditValue(value){
+  if(value===null||value===undefined||value==="")return "—";
+  const text=typeof value==="object"?JSON.stringify(value):String(value);
+  return text.length>110?text.slice(0,107)+"…":text;
+}
+function auditPath(path){
+  return String(path)
+    .replace(/sections\[(\d+)\]\.beds\[(\d+)\]/g,"ผังเตียง[$1][$2]")
+    .replace(/doctors\[(\d+)\]/g,"แพทย์[$1]")
+    .replace(/reports\./g,"รายงาน · ")
+    .replace(/current\./g,"เวรปัจจุบัน · ");
+}
+function renderRemoteAudit(){
+  const box=document.getElementById("auditHistoryList");
+  const needle=(document.getElementById("auditSearch").value||"").trim().toLowerCase();
+  const rows=auditHistoryRows.filter(row=>JSON.stringify(row).toLowerCase().includes(needle));
+  if(!cloudUser){box.innerHTML='<div class="row" style="color:var(--muted)">กรุณาเข้าสู่ระบบ Sync ก่อน</div>';return;}
+  if(!rows.length){box.innerHTML='<div class="row" style="color:var(--muted)">ยังไม่มีรายการที่ตรงกัน</div>';return;}
+  box.innerHTML=rows.map(row=>{
+    const changes=Array.isArray(row.changes)?row.changes:[];
+    const detail=changes.slice(0,8).map(c=>`<div style="font-size:12px;margin-top:4px;word-break:break-word"><b>${escapeHtml(auditPath(c.path))}</b>: <span style="color:#b45309">${escapeHtml(auditValue(c.before))}</span> → <span style="color:#047857">${escapeHtml(auditValue(c.after))}</span></div>`).join("")+(changes.length>8?`<div style="font-size:12px;color:var(--muted);margin-top:4px">และอีก ${changes.length-8} รายการ</div>`:"");
+    return `<div class="row" style="display:block"><div style="display:flex;gap:10px;flex-wrap:wrap"><b>${escapeHtml(row.actor_email||"ไม่ระบุ")}</b><span style="color:var(--muted)">${new Date(row.recorded_at).toLocaleString("th-TH")}</span><span class="auto-tag">v${escapeHtml(row.version_before)} → v${escapeHtml(row.version_after)}</span></div>${detail||'<div style="color:var(--muted);font-size:12px;margin-top:4px">มีการบันทึกข้อมูล</div>'}</div>`;
+  }).join("");
+}
+async function loadAuditHistory(){
+  const box=document.getElementById("auditHistoryList");
+  if(!cloudUser){renderRemoteAudit();return;}
+  if(!cloudBoardId){box.innerHTML='<div class="row" style="color:var(--muted)">กำลังเชื่อมข้อมูล…</div>';await loadCloud();}
+  if(!cloudBoardId)return;
+  const {data,error}=await supabaseClient.from("ward_board_audit")
+    .select("id,actor_email,recorded_at,changes,version_before,version_after")
+    .eq("board_id",cloudBoardId).order("recorded_at",{ascending:false}).limit(200);
+  if(error){box.innerHTML='<div class="row" style="color:var(--muted)">โหลดประวัติไม่สำเร็จ: '+escapeHtml(error.message)+'</div>';return;}
+  auditHistoryRows=data||[];renderRemoteAudit();
+}
 document.getElementById("btnBackup").onclick=()=>{renderAudit();document.getElementById("bkOverlay").classList.add("open");};
 document.getElementById("bkClose").onclick=()=>document.getElementById("bkOverlay").classList.remove("open");
 document.getElementById("bkOverlay").onclick=(e)=>{if(e.target.id==="bkOverlay")e.currentTarget.classList.remove("open");};
@@ -685,6 +750,10 @@ document.getElementById("bkExport").onclick=()=>{const blob=new Blob([JSON.strin
 document.getElementById("bkImport").onclick=()=>document.getElementById("bkFile").click();
 document.getElementById("bkFile").onchange=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const s=JSON.parse(r.result);if(s.doctors&&s.sections){state=normalize(s);save();renderAll();_repInit=false;renderReportTab();alert("กู้คืนสำเร็จ");document.getElementById("bkOverlay").classList.remove("open");}else alert("ไฟล์ไม่ถูกต้อง");}catch(err){alert("อ่านไฟล์ไม่ได้");}};r.readAsText(f);};
 document.getElementById("bkClearAssign").onclick=()=>{if(confirm("ล้างผู้ป่วย/แพทย์/acuity ทุกเตียง? (โครงสร้างเตียงคงเดิม)")){audit("ล้างข้อมูลผู้ป่วยทุกเตียง",{});state.sections.forEach(sec=>sec.beds.forEach(b=>{b.doctorId=null;b.patient="";b.hn="";b.note="";b.acuity=0;b.patientIso=false;}));save();renderAll();renderAudit();}};
+document.getElementById("btnAuditHistory").onclick=()=>{document.getElementById("auditOverlay").classList.add("open");loadAuditHistory();};
+document.getElementById("auditClose").onclick=()=>document.getElementById("auditOverlay").classList.remove("open");
+document.getElementById("auditOverlay").onclick=e=>{if(e.target.id==="auditOverlay")e.currentTarget.classList.remove("open");};
+document.getElementById("auditSearch").oninput=renderRemoteAudit;
 
 /* ---------- cloud sync ---------- */
 document.getElementById("btnSyncAuth").onclick=()=>{updateSyncUI();document.getElementById("syncOverlay").classList.add("open");};
@@ -692,7 +761,7 @@ document.getElementById("syncClose").onclick=()=>document.getElementById("syncOv
 document.getElementById("syncClose2").onclick=()=>document.getElementById("syncOverlay").classList.remove("open");
 document.getElementById("syncOverlay").onclick=e=>{if(e.target.id==="syncOverlay")e.currentTarget.classList.remove("open");};
 document.getElementById("btnSyncSignIn").onclick=sendSyncLink;
-document.getElementById("btnSyncSignOut").onclick=async()=>{if(supabaseClient)await supabaseClient.auth.signOut();cloudReady=false;cloudVersion=null;cloudUser=null;if(cloudChannel)supabaseClient.removeChannel(cloudChannel);cloudChannel=null;setSyncStatus("☁️ ออกจาก Sync แล้ว");updateSyncUI();document.getElementById("syncOverlay").classList.remove("open");};
+document.getElementById("btnSyncSignOut").onclick=async()=>{if(supabaseClient)await supabaseClient.auth.signOut();cloudReady=false;cloudVersion=null;cloudBoardId=null;cloudSnapshot=null;cloudUser=null;auditHistoryRows=[];if(cloudChannel)supabaseClient.removeChannel(cloudChannel);cloudChannel=null;setSyncStatus("☁️ ออกจาก Sync แล้ว");updateSyncUI();document.getElementById("syncOverlay").classList.remove("open");};
 
 /* ---------- tabs ---------- */
 document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{

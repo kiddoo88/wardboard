@@ -91,7 +91,8 @@
   .bed .i{font-size:11px;opacity:.7;background:rgba(0,0,0,.25);border-radius:6px;padding:1px 5px}
   .bed.in-or{outline:3px solid #22c55e;outline-offset:3px}
   .or-status{font-size:10px;font-weight:800;background:#166534;color:#dcfce7;border-radius:6px;padding:2px 6px}
-  .admit-day{font-size:12px;font-weight:900;background:rgba(15,23,42,.72);color:#fff;border-radius:999px;min-width:22px;text-align:center;padding:2px 6px}
+  .admit-day{position:absolute;right:7px;bottom:6px;font-size:11px;font-weight:900;background:rgba(15,23,42,.72);color:#fff;border-radius:999px;padding:2px 7px}
+  body.editing .admit-day{right:33px}
   #btnOR.active{background:#166534;border-color:#22c55e;color:#dcfce7;font-weight:800}
   .rm-bed{position:absolute;bottom:5px;right:5px;background:#dc2626;color:#fff;border:none;
     border-radius:6px;width:22px;height:22px;font-size:14px;line-height:1;cursor:pointer;display:none;z-index:2}
@@ -611,7 +612,8 @@ function renderMap(){
         <div class="pt">${escapeHtml(b.patient||(has?"(ไม่ระบุชื่อผู้ป่วย)":"— ว่าง —"))}</div>
         <div class="note">${b.note?`Dx: ${escapeHtml(b.note)}`:""}${b.note&&b.hn?" · ":""}${b.hn?`HN ${escapeHtml(b.hn)}`:""}</div>
         <div class="doc">เจ้าของไข้: ${d?escapeHtml(d.name):(has?"ไม่ระบุ":"—")}</div>
-        <div class="badges">${day?`<span class="admit-day" title="Admit day ${day}">${day}</span>`:''}${b.inOR?'<span class="or-status">● OR</span>':''}${sec.type==="isolation"?'<span class="iso">ห้องแยก</span>':''}${b.patientIso?'<span class="iso">ต้องแยก</span>':''}${b.acuity?`<span class="acu">${b.acuity}</span>`:''}<span class="i">✎</span></div>
+        <div class="badges">${b.inOR?'<span class="or-status">● OR</span>':''}${sec.type==="isolation"?'<span class="iso">ห้องแยก</span>':''}${b.patientIso?'<span class="iso">ต้องแยก</span>':''}${b.acuity?`<span class="acu">${b.acuity}</span>`:''}<span class="i">✎</span></div>
+        ${day?`<div class="admit-day">Day ${day}</div>`:''}
         <button class="rm-bed" title="ลบเตียง">×</button>`;
       cell.querySelector(".rm-bed").onclick=(e)=>{e.stopPropagation();if(confirm("ลบ "+sec.name+" เตียง "+b.label+" ?")){sec.beds=sec.beds.filter(x=>x.id!==b.id);save();renderAll();}};
       cell.querySelector(".i").onclick=(e)=>{e.stopPropagation();openBed(sec,b);};

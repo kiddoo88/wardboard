@@ -91,6 +91,7 @@
   .bed .i{font-size:11px;opacity:.7;background:rgba(0,0,0,.25);border-radius:6px;padding:1px 5px}
   .bed.in-or{outline:3px solid #22c55e;outline-offset:3px}
   .or-status{font-size:10px;font-weight:800;background:#166534;color:#dcfce7;border-radius:6px;padding:2px 6px}
+  .admit-day{font-size:12px;font-weight:900;background:rgba(15,23,42,.72);color:#fff;border-radius:999px;min-width:22px;text-align:center;padding:2px 6px}
   #btnOR.active{background:#166534;border-color:#22c55e;color:#dcfce7;font-weight:800}
   .rm-bed{position:absolute;bottom:5px;right:5px;background:#dc2626;color:#fff;border:none;
     border-radius:6px;width:22px;height:22px;font-size:14px;line-height:1;cursor:pointer;display:none;z-index:2}
@@ -272,6 +273,7 @@
       <div class="seg" id="admitType" style="margin-top:8px">
         <div class="o sel" data-t="admitNew">รับใหม่</div><div class="o" data-t="admitTransfer">รับย้าย</div><div class="o" data-t="admitRefer">รับ Refer</div>
       </div>
+      <div class="field" id="transferAdmitDayField" style="display:none;margin:10px 0 0"><label>วันนี้เป็น Admit day ที่</label><input type="number" id="transferAdmitDay" min="1" step="1" value="1"></div>
     </div>
 
     <div id="dischargeBox">
@@ -361,7 +363,7 @@ const DEFAULT_DOCTORS=[
   {id:"d8",name:"พงษ์พิริยะ",sai:"B",color:"#005e00"},
   {id:"d9",name:"ศวิษฐ์",sai:"B",color:"#ffcc99"},
 ];
-function bed(id,label){return {id,label,doctorId:null,patient:"",hn:"",note:"",acuity:0,patientIso:false,inOR:false};}
+function bed(id,label){return {id,label,doctorId:null,patient:"",hn:"",note:"",acuity:0,patientIso:false,inOR:false,admitDate:""};}
 function mkSeq(p,start,n,iso){const a=[];for(let i=0;i<n;i++)a.push(bed(p+"-"+(i+1),String(start+i),iso));return a;}
 function defaultState(){
   return {
@@ -414,6 +416,10 @@ function normalize(s){
     if(b.acuity===undefined)b.acuity=0;
     if(b.hn===undefined)b.hn="";
     if(b.inOR===undefined)b.inOR=false;
+    if(b.admitDate===undefined){
+      const admits=(s.events||[]).filter(e=>["admitNew","admitTransfer","admitRefer"].includes(e.type)&&e.patient===b.patient&&(!b.hn||e.hn===b.hn)).sort((a,b)=>b.ts-a.ts);
+      b.admitDate=admits[0]&&admits[0].date||"";
+    }
     // schema เก่าใช้ iso ปะปนกัน จึงย้ายมาเป็นสถานะผู้ป่วย; ชนิดห้องอ่านจาก section.type เสมอ
     if(b.patientIso===undefined)b.patientIso=!!b.iso;
   }));
@@ -493,6 +499,12 @@ async function sendSyncLink(){
 }
 function docById(id){return state.doctors.find(d=>d.id===id)||null;}
 function allBeds(){return state.sections.flatMap(s=>s.beds);}
+function admitDay(date){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date||""))return null;
+  const start=new Date(date+"T00:00:00"),now=new Date(todayISO()+"T00:00:00");
+  return Math.max(1,Math.floor((now-start)/86400000)+1);
+}
+function offsetISODate(date,days){const d=new Date(date+"T00:00:00");d.setDate(d.getDate()+days);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
 function currentActor(){return (state.current&&state.current.actor||"").trim()||"ไม่ระบุผู้บันทึก";}
 function audit(action,detail){
   if(!state.audit)state.audit=[];
@@ -591,6 +603,7 @@ function renderMap(){
     }
     renderBeds.forEach(b=>{
       const d=b.doctorId?docById(b.doctorId):null;const has=b.patient||b.doctorId||b.acuity;
+      const day=admitDay(b.admitDate);
       const cell=document.createElement("div");cell.className="bed"+(has?"":" empty")+(b.inOR?" in-or":"");
       if(d){cell.style.background=d.color;cell.style.color=contrast(d.color);cell.style.borderColor=d.color;}
       cell.innerHTML=`
@@ -598,7 +611,7 @@ function renderMap(){
         <div class="pt">${escapeHtml(b.patient||(has?"(ไม่ระบุชื่อผู้ป่วย)":"— ว่าง —"))}</div>
         <div class="note">${b.note?`Dx: ${escapeHtml(b.note)}`:""}${b.note&&b.hn?" · ":""}${b.hn?`HN ${escapeHtml(b.hn)}`:""}</div>
         <div class="doc">เจ้าของไข้: ${d?escapeHtml(d.name):(has?"ไม่ระบุ":"—")}</div>
-        <div class="badges">${b.inOR?'<span class="or-status">● OR</span>':''}${sec.type==="isolation"?'<span class="iso">ห้องแยก</span>':''}${b.patientIso?'<span class="iso">ต้องแยก</span>':''}${b.acuity?`<span class="acu">${b.acuity}</span>`:''}<span class="i">✎</span></div>
+        <div class="badges">${day?`<span class="admit-day" title="Admit day ${day}">${day}</span>`:''}${b.inOR?'<span class="or-status">● OR</span>':''}${sec.type==="isolation"?'<span class="iso">ห้องแยก</span>':''}${b.patientIso?'<span class="iso">ต้องแยก</span>':''}${b.acuity?`<span class="acu">${b.acuity}</span>`:''}<span class="i">✎</span></div>
         <button class="rm-bed" title="ลบเตียง">×</button>`;
       cell.querySelector(".rm-bed").onclick=(e)=>{e.stopPropagation();if(confirm("ลบ "+sec.name+" เตียง "+b.label+" ?")){sec.beds=sec.beds.filter(x=>x.id!==b.id);save();renderAll();}};
       cell.querySelector(".i").onclick=(e)=>{e.stopPropagation();openBed(sec,b);};
@@ -632,6 +645,8 @@ function openBed(sec,b){
   document.getElementById("bedSave").textContent=occupied?"Discharge":"＋ บันทึกรับเข้า";
   const orBtn=document.getElementById("btnOR");orBtn.classList.toggle("active",!!b.inOR);orBtn.textContent=b.inOR?"✓ รับกลับจาก OR (เอาสถานะออก)":"🔪 ส่ง OR";
   document.querySelectorAll("#admitType .o").forEach((o,i)=>o.classList.toggle("sel",i===0));
+  document.getElementById("transferAdmitDay").value=1;
+  document.getElementById("transferAdmitDayField").style.display="none";
   document.querySelectorAll("#dischargeType .o").forEach((o,i)=>o.classList.toggle("sel",i===0));
   document.getElementById("bedOverlay").classList.add("open");
 }
@@ -646,7 +661,8 @@ function applyFields(b){
 }
 function selDoc(id){document.querySelectorAll("#bedDocPick .p").forEach(p=>p.classList.toggle("sel",p.dataset.id===id));}
 document.querySelectorAll("#bedAcu .o").forEach(o=>o.onclick=()=>document.querySelectorAll("#bedAcu .o").forEach(x=>x.classList.toggle("sel",x===o)));
-document.querySelectorAll("#admitType .o").forEach(o=>o.onclick=()=>document.querySelectorAll("#admitType .o").forEach(x=>x.classList.toggle("sel",x===o)));
+function updateTransferAdmitDayField(){const selected=document.querySelector("#admitType .o.sel");document.getElementById("transferAdmitDayField").style.display=selected&&selected.dataset.t==="admitTransfer"?"block":"none";}
+document.querySelectorAll("#admitType .o").forEach(o=>o.onclick=()=>{document.querySelectorAll("#admitType .o").forEach(x=>x.classList.toggle("sel",x===o));updateTransferAdmitDayField();});
 document.querySelectorAll("#dischargeType .o").forEach(o=>o.onclick=()=>document.querySelectorAll("#dischargeType .o").forEach(x=>x.classList.toggle("sel",x===o)));
 function saveAdmission(){
   if(!curBed)return;const b=curBed.b;
@@ -658,14 +674,15 @@ function saveAdmission(){
   if(!confirmCurrent("ยืนยันการรับผู้ป่วย"))return;
   applyFields(b);
   const t=document.querySelector("#admitType .o.sel");const type=t?t.dataset.t:"admitNew";
-  if(logEvent(type,b)){b.inOR=false;save();closeBed();renderAll();toast("รับเข้า: "+EV_LABEL[type]);}
+  const transferDay=type==="admitTransfer"?Math.max(1,Math.floor(Number(document.getElementById("transferAdmitDay").value)||1)):1;
+  if(logEvent(type,b)){b.inOR=false;b.admitDate=offsetISODate(state.current.date,-(transferDay-1));save();closeBed();renderAll();toast("รับเข้า: "+EV_LABEL[type]);}
 }
 function saveDischarge(){
   if(!curBed)return;const b=curBed.b;
   b.patient=document.getElementById("bedPatient").value.trim()||b.patient;
   const t=document.querySelector("#dischargeType .o.sel");const type=t?t.dataset.t:"dcAllow";
   if(!confirmCurrent("ยืนยันการจำหน่าย / ส่งต่อ"))return;
-  if(logEvent(type,b)){b.doctorId=null;b.patient="";b.hn="";b.note="";b.acuity=0;b.patientIso=false;b.inOR=false;save();closeBed();renderAll();toast("จำหน่าย: "+EV_LABEL[type]);}
+  if(logEvent(type,b)){b.doctorId=null;b.patient="";b.hn="";b.note="";b.acuity=0;b.patientIso=false;b.inOR=false;b.admitDate="";save();closeBed();renderAll();toast("จำหน่าย: "+EV_LABEL[type]);}
 }
 document.getElementById("btnOR").onclick=()=>{
   if(!curBed)return;const b=curBed.b;
@@ -679,7 +696,7 @@ document.getElementById("btnOR").onclick=()=>{
   save();closeBed();renderAll();
 };
 function closeBed(){document.getElementById("bedOverlay").classList.remove("open");curBed=null;}
-function swapBedData(a,b){["doctorId","patient","hn","note","acuity","patientIso","inOR"].forEach(k=>{const t=a[k];a[k]=b[k];b[k]=t;});}
+function swapBedData(a,b){["doctorId","patient","hn","note","acuity","patientIso","inOR","admitDate"].forEach(k=>{const t=a[k];a[k]=b[k];b[k]=t;});}
 document.getElementById("btnMoveBed").onclick=()=>{
   if(!curBed)return;
   const from=curBed.b,target=document.getElementById("bedMoveTarget").value.trim();
@@ -697,7 +714,7 @@ document.getElementById("bedSave").onclick=()=>{
   if(!curBed)return;
   if(curBed.mode==="admit")saveAdmission();else saveDischarge();
 };
-document.getElementById("bedClear").onclick=()=>{if(!curBed)return;const b=curBed.b;if(!confirm("ล้างข้อมูลเตียงโดยไม่นับเป็นการจำหน่ายใช่หรือไม่?"))return;audit("ล้างข้อมูลเตียง (ไม่นับเหตุการณ์)",{bedLabel:b.label});b.doctorId=null;b.patient="";b.hn="";b.note="";b.acuity=0;b.patientIso=false;b.inOR=false;save();closeBed();renderAll();};
+document.getElementById("bedClear").onclick=()=>{if(!curBed)return;const b=curBed.b;if(!confirm("ล้างข้อมูลเตียงโดยไม่นับเป็นการจำหน่ายใช่หรือไม่?"))return;audit("ล้างข้อมูลเตียง (ไม่นับเหตุการณ์)",{bedLabel:b.label});b.doctorId=null;b.patient="";b.hn="";b.note="";b.acuity=0;b.patientIso=false;b.inOR=false;b.admitDate="";save();closeBed();renderAll();};
 document.getElementById("bedCancel").onclick=closeBed;
 document.getElementById("bedOverlay").onclick=(e)=>{if(e.target.id==="bedOverlay")closeBed();};
 
@@ -765,7 +782,7 @@ document.getElementById("bkOverlay").onclick=(e)=>{if(e.target.id==="bkOverlay")
 document.getElementById("bkExport").onclick=()=>{const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="ward-backup-"+new Date().toISOString().slice(0,10)+".json";a.click();};
 document.getElementById("bkImport").onclick=()=>document.getElementById("bkFile").click();
 document.getElementById("bkFile").onchange=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const s=JSON.parse(r.result);if(s.doctors&&s.sections){state=normalize(s);save();renderAll();_repInit=false;renderReportTab();alert("กู้คืนสำเร็จ");document.getElementById("bkOverlay").classList.remove("open");}else alert("ไฟล์ไม่ถูกต้อง");}catch(err){alert("อ่านไฟล์ไม่ได้");}};r.readAsText(f);};
-document.getElementById("bkClearAssign").onclick=()=>{if(confirm("ล้างผู้ป่วย/แพทย์/acuity ทุกเตียง? (โครงสร้างเตียงคงเดิม)")){audit("ล้างข้อมูลผู้ป่วยทุกเตียง",{});state.sections.forEach(sec=>sec.beds.forEach(b=>{b.doctorId=null;b.patient="";b.hn="";b.note="";b.acuity=0;b.patientIso=false;b.inOR=false;}));save();renderAll();renderAudit();}};
+document.getElementById("bkClearAssign").onclick=()=>{if(confirm("ล้างผู้ป่วย/แพทย์/acuity ทุกเตียง? (โครงสร้างเตียงคงเดิม)")){audit("ล้างข้อมูลผู้ป่วยทุกเตียง",{});state.sections.forEach(sec=>sec.beds.forEach(b=>{b.doctorId=null;b.patient="";b.hn="";b.note="";b.acuity=0;b.patientIso=false;b.inOR=false;b.admitDate="";}));save();renderAll();renderAudit();}};
 document.getElementById("btnAuditHistory").onclick=()=>{document.getElementById("auditOverlay").classList.add("open");loadAuditHistory();};
 document.getElementById("auditClose").onclick=()=>document.getElementById("auditOverlay").classList.remove("open");
 document.getElementById("auditOverlay").onclick=e=>{if(e.target.id==="auditOverlay")e.currentTarget.classList.remove("open");};

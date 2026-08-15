@@ -611,7 +611,7 @@ function renderMap(){
         <div class="lbl">${escapeHtml(b.label)}</div>
         <div class="pt">${escapeHtml(b.patient||(has?"(ไม่ระบุชื่อผู้ป่วย)":"— ว่าง —"))}</div>
         <div class="note">${b.note?`Dx: ${escapeHtml(b.note)}`:""}${b.note&&b.hn?" · ":""}${b.hn?`HN ${escapeHtml(b.hn)}`:""}</div>
-        <div class="doc">เจ้าของไข้: ${d?escapeHtml(d.name):(has?"ไม่ระบุ":"—")}</div>
+        <div class="doc">พ. ${d?escapeHtml(d.name):(has?"ไม่ระบุ":"—")}</div>
         <div class="badges">${b.inOR?'<span class="or-status">● OR</span>':''}${sec.type==="isolation"?'<span class="iso">ห้องแยก</span>':''}${b.patientIso?'<span class="iso">ต้องแยก</span>':''}${b.acuity?`<span class="acu">${b.acuity}</span>`:''}<span class="i">✎</span></div>
         ${day?`<div class="admit-day">Day ${day}</div>`:''}
         <button class="rm-bed" title="ลบเตียง">×</button>`;

@@ -250,6 +250,11 @@
 <div class="overlay" id="bedOverlay">
   <div class="modal">
     <h3 id="bedTitle">เตียง</h3>
+    <div class="field" id="moveBedField">
+      <label>ย้าย/สลับผู้ป่วยไปเตียงเลขที่</label>
+      <div style="display:flex;gap:8px"><input type="text" id="bedMoveTarget" inputmode="numeric" style="flex:1"><button id="btnMoveBed">⇄ ย้าย</button></div>
+      <div class="auto-tag" style="margin-top:4px">ปลายทางว่าง = ย้ายข้อมูล · มีผู้ป่วย = สลับข้อมูล โดยตำแหน่งเตียงคงเดิม</div>
+    </div>
     <div class="field"><label>แพทย์เจ้าของไข้</label><div class="doc-pick" id="bedDocPick"></div></div>
     <div class="field"><label>ชื่อผู้ป่วย</label><input type="text" id="bedPatient" placeholder="เว้นว่าง = เตียงว่าง"></div>
     <div class="field"><label>HN</label><input type="text" id="bedHn" placeholder="เช่น 1234567"></div>
@@ -611,6 +616,8 @@ function openBed(sec,b){
   const occupied=!!(b.patient||b.doctorId||b.acuity);
   curBed={sec,b,mode:occupied?"discharge":"admit"};
   document.getElementById("bedTitle").textContent=sec.name+" · เตียง "+b.label;
+  document.getElementById("bedMoveTarget").value=b.label;
+  document.getElementById("moveBedField").style.display=occupied?"block":"none";
   document.getElementById("bedPatient").value=b.patient||"";
   document.getElementById("bedHn").value=b.hn||"";
   document.getElementById("bedNote").value=b.note||"";
@@ -672,6 +679,20 @@ document.getElementById("btnOR").onclick=()=>{
   save();closeBed();renderAll();
 };
 function closeBed(){document.getElementById("bedOverlay").classList.remove("open");curBed=null;}
+function swapBedData(a,b){["doctorId","patient","hn","note","acuity","patientIso","inOR"].forEach(k=>{const t=a[k];a[k]=b[k];b[k]=t;});}
+document.getElementById("btnMoveBed").onclick=()=>{
+  if(!curBed)return;
+  const from=curBed.b,target=document.getElementById("bedMoveTarget").value.trim();
+  if(!target||target===from.label){alert("ระบุเลขเตียงปลายทางที่ต่างจากเตียงเดิม");return;}
+  const destination=allBeds().find(b=>b.label===target);
+  if(!destination){alert('ไม่พบเตียงเลข "'+target+'"');return;}
+  const destinationOccupied=!!(destination.patient||destination.doctorId||destination.acuity);
+  const action=destinationOccupied?"สลับข้อมูลผู้ป่วย":"ย้ายข้อมูลผู้ป่วย";
+  if(!confirm(`${action} จากเตียง ${from.label} ไปเตียง ${destination.label} ใช่หรือไม่?`))return;
+  swapBedData(from,destination);
+  audit(action,{from:from.label,to:destination.label});
+  save();closeBed();renderAll();toast(`${action} ไปเตียง ${destination.label} แล้ว`);
+};
 document.getElementById("bedSave").onclick=()=>{
   if(!curBed)return;
   if(curBed.mode==="admit")saveAdmission();else saveDischarge();

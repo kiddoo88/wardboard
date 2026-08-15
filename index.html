@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ward Board — ผังเตียง & รายงาน Product</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.55.0/dist/umd/supabase.js"></script>
 <style>
   :root{
     --bg:#0f172a; --panel:#1e293b; --panel2:#273449; --line:#334155;
@@ -151,6 +152,8 @@
   <button class="ghost sm" id="btnDocs">👤 แพทย์/สี</button>
   <button class="ghost sm" id="btnEdit">✏️ แก้ไขผังเตียง</button>
   <button class="ghost sm" id="btnBackup">💾 สำรอง/กู้คืน</button>
+  <span class="cnt" id="syncStatus">☁️ ยังไม่ได้เชื่อม</span>
+  <button class="ghost sm" id="btnSyncAuth">☁️ เข้าสู่ระบบ Sync</button>
 </header>
 
 <div class="tabs">
@@ -165,8 +168,9 @@
       <span>🕒 เวรที่กำลังบันทึก:</span>
       <input type="date" id="curDate">
       <select id="curShift"><option value="ด">ด (ดึก)</option><option value="ช">ช (เช้า)</option><option value="บ">บ (บ่าย)</option></select>
+      <input type="text" id="curActor" placeholder="ผู้บันทึก" aria-label="ผู้บันทึก">
       <span class="cnt" id="curEventCount"></span>
-      <span class="cnt" style="margin-left:auto">รับ/จำหน่าย/OR ที่ทำในเตียง จะถูกนับเข้ารายงานเวรนี้อัตโนมัติ</span>
+      <span class="cnt" style="margin-left:auto">รับ/จำหน่าย/OR จะยืนยันวันที่และเวรนี้ก่อนบันทึก</span>
     </div>
     <div class="docs" id="docs"></div>
     <div class="brush-hint" id="brushHint"></div>
@@ -245,14 +249,15 @@
     <div class="field"><label>ย้ายผู้ป่วยไปเตียงเลขที่ <span class="auto-tag">(เลขเตียงคงที่ตามตำแหน่งจริง · พิมพ์เลขปลายทางเพื่อย้าย/สลับ)</span></label><input type="text" id="bedLabel"></div>
     <div class="field"><label>แพทย์เจ้าของไข้</label><div class="doc-pick" id="bedDocPick"></div></div>
     <div class="field"><label>ชื่อผู้ป่วย</label><input type="text" id="bedPatient" placeholder="เว้นว่าง = เตียงว่าง"></div>
-    <div class="field"><label>HN / หมายเหตุ</label><input type="text" id="bedNote" placeholder="เช่น Dx, HN"></div>
+    <div class="field"><label>HN</label><input type="text" id="bedHn" placeholder="เช่น 1234567"></div>
+    <div class="field"><label>หมายเหตุ</label><input type="text" id="bedNote" placeholder="เช่น Dx, ข้อควรระวัง"></div>
     <div class="field"><label>ประเภทผู้ป่วย (acuity)</label>
       <div class="seg" id="bedAcu">
         <div class="o" data-a="0">–</div><div class="o" data-a="1">1</div><div class="o" data-a="2">2</div>
         <div class="o" data-a="3">3</div><div class="o" data-a="4">4</div><div class="o" data-a="5">5</div>
       </div>
     </div>
-    <div class="field toggle"><input type="checkbox" id="bedIso" style="width:auto"><label style="margin:0">ผู้ป่วยแยก (นับเข้าช่อง "แยก")</label></div>
+    <div class="field toggle"><input type="checkbox" id="bedPatientIso" style="width:auto"><label style="margin:0">ผู้ป่วยต้องใช้มาตรการแยก (เป็นสถานะผู้ป่วย)</label></div>
 
     <div id="admitBox">
       <label>รับผู้ป่วยเข้าเวรนี้ → นับเข้ารายงานอัตโนมัติ</label>
@@ -307,26 +312,41 @@
       <div class="spacer"></div>
       <button id="bkClose" class="primary">ปิด</button>
     </div>
+    <details style="margin-top:12px"><summary style="cursor:pointer;color:var(--muted)">ประวัติการแก้ไขล่าสุด</summary><div class="evlog" id="auditLog" style="margin-top:8px"></div></details>
+  </div>
+</div>
+
+<!-- Cloud sync / sign-in -->
+<div class="overlay" id="syncOverlay">
+  <div class="modal">
+    <h3>☁️ Sync ทุกเครื่อง</h3>
+    <p id="syncHelp" style="color:var(--muted);font-size:13px;line-height:1.5">เข้าสู่ระบบด้วยอีเมลที่ผู้ดูแลเพิ่มสิทธิ์ไว้ เพื่อเชื่อมผังเตียงและรายงานแบบ realtime</p>
+    <div class="field" id="syncEmailField"><label>อีเมล</label><input type="email" id="syncEmail" autocomplete="email" placeholder="name@hospital.go.th"></div>
+    <div class="modal-actions" id="syncSignInActions"><button class="primary" id="btnSyncSignIn">ส่งลิงก์เข้าสู่ระบบ</button><div class="spacer"></div><button id="syncClose">ปิด</button></div>
+    <div class="modal-actions" id="syncSignOutActions" style="display:none"><button class="ghost" id="btnSyncSignOut">ออกจากระบบ</button><div class="spacer"></div><button id="syncClose2">ปิด</button></div>
   </div>
 </div>
 
 <script>
+const SUPABASE_URL="https://vcfmqfrrffcewjxulygo.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY="sb_publishable_YSXZqEeNDSZJRBvkyyL44A_vWfyv8iv";
+const CLOUD_BOARD_SLUG="main";
 const LS_KEY="wardBoardV2";
 const ACU_W={5:12,4:7.5,3:5.5,2:3.5,1:1.5};
 const SHIFTS=["ด","ช","บ"];
 
 const DEFAULT_DOCTORS=[
-  {id:"d1",name:"พรหมพร",sai:"A",color:"#2563eb"},
-  {id:"d2",name:"วิชญะ",sai:"A",color:"#0891b2"},
-  {id:"d3",name:"ณัฐพร",sai:"A",color:"#0d9488"},
-  {id:"d4",name:"พิชชา",sai:"A",color:"#16a34a"},
-  {id:"d5",name:"ก้องเกียรติ",sai:"A",color:"#4f46e5"},
-  {id:"d6",name:"ธีรินทร์",sai:"B",color:"#dc2626"},
-  {id:"d7",name:"จิระ",sai:"B",color:"#ea580c"},
-  {id:"d8",name:"พงษ์พิริยะ",sai:"B",color:"#d97706"},
-  {id:"d9",name:"ศวิษฐ์",sai:"B",color:"#db2777"},
+  {id:"d1",name:"พรหมพร",sai:"A",color:"#0066ff"},
+  {id:"d2",name:"วิชญะ",sai:"A",color:"#ff6600"},
+  {id:"d3",name:"ณัฐพร",sai:"A",color:"#388600"},
+  {id:"d4",name:"พิชชา",sai:"A",color:"#ffff00"},
+  {id:"d5",name:"ก้องเกียรติ",sai:"A",color:"#ff6699"},
+  {id:"d6",name:"ธีรินทร์",sai:"B",color:"#ff0000"},
+  {id:"d7",name:"จิระ",sai:"B",color:"#993300"},
+  {id:"d8",name:"พงษ์พิริยะ",sai:"B",color:"#005e00"},
+  {id:"d9",name:"ศวิษฐ์",sai:"B",color:"#ffcc99"},
 ];
-function bed(id,label,iso){return {id,label,doctorId:null,patient:"",note:"",acuity:0,iso:!!iso};}
+function bed(id,label){return {id,label,doctorId:null,patient:"",hn:"",note:"",acuity:0,patientIso:false};}
 function mkSeq(p,start,n,iso){const a=[];for(let i=0;i<n;i++)a.push(bed(p+"-"+(i+1),String(start+i),iso));return a;}
 function defaultState(){
   return {
@@ -342,18 +362,23 @@ function defaultState(){
       {id:"cor",name:"เตียงทางเดิน",type:"corridor",beds:mkSeq("cor",25,6)},
     ],
     reports:{},  // key "YYYY-MM-DD|เวร" -> record
-    events:[],   // {id,date,shift,type,bedLabel,patient,ts}
-    current:{date:todayISO(),shift:guessShift()},
-    schemaV:3
+    events:[],   // {id,date,shift,type,bedLabel,patient,hn,actor,ts}
+    audit:[],
+    current:{date:todayISO(),shift:guessShift(),actor:""},
+    schemaV:4
   };
 }
 function todayISO(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");} // ใช้เวลาท้องถิ่น (ไม่ใช่ UTC) — สำคัญกับเวรดึกก่อน 07:00
 function guessShift(){const h=new Date().getHours();return h<8?"ด":(h<16?"ช":"บ");}
 function migrate(s){
   if(!s.events)s.events=[];
-  if(!s.current)s.current={date:todayISO(),shift:guessShift()};
+  if(!s.audit)s.audit=[];
+  if(!s.current)s.current={date:todayISO(),shift:guessShift(),actor:""};
+  if(s.current.actor===undefined)s.current.actor="";
   if(s.doctors)s.doctors.forEach(d=>{if(!d.sai)d.sai="A";}); // แพทย์จาก schema เก่าไม่มีสาย → ไม่งั้นหายจากแถบ brush
-  if(s.schemaV>=3)return s;
+  if(s.schemaV>=4)return s;
+  // ปรับสีตามตารางสีแพทย์ที่ยืนยันแล้ว แม้เครื่องนี้เคยบันทึกสีเดิมไว้
+  if(s.doctors)s.doctors.forEach(d=>{const ref=DEFAULT_DOCTORS.find(x=>x.id===d.id||x.name===d.name);if(ref)d.color=ref.color;});
   const findSec=id=>s.sections.find(x=>x.id===id);
   const block=(id,base,name)=>{const sec=findSec(id);if(sec){sec.layout="cw";sec.name=name;sec.beds.forEach((b,i)=>b.label=String(base+i));}};
   const relabel=(id,labels)=>{const sec=findSec(id);if(sec)sec.beds.forEach((b,i)=>{if(labels[i]!==undefined)b.label=labels[i];});};
@@ -361,20 +386,89 @@ function migrate(s){
   relabel("s1",["101","102"]);relabel("s2",["201","202"]);relabel("s3",["301","302"]);
   relabel("iso",["แยก 1","แยก 2"]);
   const cor=findSec("cor");if(cor)cor.beds.forEach((b,i)=>b.label=String(25+i));
-  s.schemaV=3;return s;
+  s.schemaV=4;return s;
 }
 
 let state,activeDoc=null,curBed=null;
+let supabaseClient=null,cloudReady=false,cloudVersion=null,cloudUser=null,cloudChannel=null,cloudTimer=null,applyingRemote=false;
 
 function normalize(s){
   if(!s.reports)s.reports={};
-  s.sections.forEach(sec=>sec.beds.forEach(b=>{if(b.acuity===undefined)b.acuity=0;if(b.iso===undefined)b.iso=(sec.type==="isolation");}));
-  return migrate(s);
+  s=migrate(s);
+  s.sections.forEach(sec=>sec.beds.forEach(b=>{
+    if(b.acuity===undefined)b.acuity=0;
+    if(b.hn===undefined)b.hn="";
+    // schema เก่าใช้ iso ปะปนกัน จึงย้ายมาเป็นสถานะผู้ป่วย; ชนิดห้องอ่านจาก section.type เสมอ
+    if(b.patientIso===undefined)b.patientIso=!!b.iso;
+  }));
+  return s;
 }
 function load(){try{const s=JSON.parse(localStorage.getItem(LS_KEY));if(s&&s.doctors&&s.sections)return normalize(s);}catch(e){}return defaultState();}
-function save(){try{localStorage.setItem(LS_KEY,JSON.stringify(state));}catch(e){}}
+function save(){
+  try{localStorage.setItem(LS_KEY,JSON.stringify(state));}catch(e){}
+  if(cloudReady&&!applyingRemote){clearTimeout(cloudTimer);cloudTimer=setTimeout(writeCloud,500);}
+}
+function setSyncStatus(text){const el=document.getElementById("syncStatus");if(el)el.textContent=text;}
+function updateSyncUI(){
+  const signed=!!cloudUser;
+  document.getElementById("btnSyncAuth").textContent=signed?"☁️ Sync: "+(cloudUser.email||"เชื่อมแล้ว"):"☁️ เข้าสู่ระบบ Sync";
+  document.getElementById("syncEmailField").style.display=signed?"none":"block";
+  document.getElementById("syncSignInActions").style.display=signed?"none":"flex";
+  document.getElementById("syncSignOutActions").style.display=signed?"flex":"none";
+  document.getElementById("syncHelp").textContent=signed?`เชื่อมด้วย ${cloudUser.email||"อีเมลนี้"} แล้ว การเปลี่ยนแปลงจะ sync ทุกเครื่องแบบ realtime`:"เข้าสู่ระบบด้วยอีเมลที่ผู้ดูแลเพิ่มสิทธิ์ไว้ เพื่อเชื่อมผังเตียงและรายงานแบบ realtime";
+}
+function applyCloudState(data,version){
+  if(!data||!data.doctors||!data.sections)return false;
+  applyingRemote=true;state=normalize(data);cloudVersion=version;localStorage.setItem(LS_KEY,JSON.stringify(state));applyingRemote=false;
+  renderAll();if(_repInit)renderReportTab();return true;
+}
+async function loadCloud(){
+  const {data,error}=await supabaseClient.from("ward_boards").select("data,version").eq("slug",CLOUD_BOARD_SLUG).maybeSingle();
+  if(error||!data){cloudReady=false;setSyncStatus("☁️ อีเมลนี้ยังไม่มีสิทธิ์ Sync");return;}
+  cloudVersion=data.version;cloudReady=true;
+  if(!applyCloudState(data.data,data.version))writeCloud();
+  setSyncStatus("☁️ Sync realtime แล้ว");
+  if(cloudChannel)supabaseClient.removeChannel(cloudChannel);
+  cloudChannel=supabaseClient.channel("ward-board-main")
+    .on("postgres_changes",{event:"UPDATE",schema:"public",table:"ward_boards",filter:"slug=eq."+CLOUD_BOARD_SLUG},payload=>{
+      const next=payload.new;
+      if(next&&Number(next.version)>Number(cloudVersion||0)){applyCloudState(next.data,next.version);toast("☁️ อัปเดตจากเครื่องอื่นแล้ว");}
+    }).subscribe();
+}
+async function writeCloud(){
+  if(!cloudReady||!supabaseClient||cloudVersion===null)return;
+  const expected=cloudVersion,body=JSON.parse(JSON.stringify(state));
+  const {data,error}=await supabaseClient.from("ward_boards")
+    .update({data:body,version:expected+1,updated_at:new Date().toISOString(),updated_by:cloudUser&&cloudUser.id||null})
+    .eq("slug",CLOUD_BOARD_SLUG).eq("version",expected).select("version").maybeSingle();
+  if(error||!data){setSyncStatus("☁️ พบการแก้ไขพร้อมกัน — กำลังโหลดข้อมูลล่าสุด");await loadCloud();return;}
+  cloudVersion=data.version;setSyncStatus("☁️ Sync realtime แล้ว");
+}
+async function connectCloud(){
+  if(!window.supabase){setSyncStatus("☁️ โหลดระบบ Sync ไม่สำเร็จ");return;}
+  if(!supabaseClient)supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+  const {data:{user}}=await supabaseClient.auth.getUser();cloudUser=user||null;updateSyncUI();
+  if(cloudUser)await loadCloud();else setSyncStatus("☁️ เข้าสู่ระบบเพื่อ Sync");
+}
+async function sendSyncLink(){
+  const email=document.getElementById("syncEmail").value.trim().toLowerCase();
+  if(!email){alert("กรอกอีเมลก่อน");return;}
+  const {error}=await supabaseClient.auth.signInWithOtp({email,options:{emailRedirectTo:location.origin+location.pathname}});
+  if(error){alert("ส่งลิงก์ไม่สำเร็จ: "+error.message);return;}
+  alert("ส่งลิงก์เข้าสู่ระบบแล้ว กรุณาตรวจอีเมล");
+}
 function docById(id){return state.doctors.find(d=>d.id===id)||null;}
 function allBeds(){return state.sections.flatMap(s=>s.beds);}
+function currentActor(){return (state.current&&state.current.actor||"").trim()||"ไม่ระบุผู้บันทึก";}
+function audit(action,detail){
+  if(!state.audit)state.audit=[];
+  state.audit.push({id:"a"+Date.now()+Math.random().toString(36).slice(2,6),ts:Date.now(),actor:currentActor(),action,detail});
+  if(state.audit.length>1000)state.audit.splice(0,state.audit.length-1000);
+}
+function confirmCurrent(action){
+  const c=state.current||{};
+  return !!c.date&&confirm(`${action}\n\nจะบันทึกในวันที่ ${c.date} · เวร ${c.shift||"-"}\nผู้บันทึก: ${currentActor()}\n\nยืนยันหรือไม่?`);
+}
 function contrast(hex){const c=hex.replace('#','');const r=parseInt(c.substr(0,2),16),g=parseInt(c.substr(2,2),16),b=parseInt(c.substr(4,2),16);return (r*299+g*587+b*114)/1000>150?"#0b1220":"#fff";}
 function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function numSort(a,b){const na=parseFloat(a.label),nb=parseFloat(b.label);const va=isNaN(na)?Infinity:na,vb=isNaN(nb)?Infinity:nb;if(va!==vb)return va-vb;return String(a.label).localeCompare(String(b.label));}
@@ -385,22 +479,25 @@ const EV_IN=["admitNew","admitTransfer","admitRefer"];
 function evClass(t){return t==="or"?"ev-or":(EV_IN.includes(t)?"ev-in":"ev-out");}
 function logEvent(type,b){
   if(!state.current||!state.current.date){alert("ตั้งวันที่เวรที่กำลังบันทึกก่อน (แถบบนหน้าผังเตียง)");return false;}
-  state.events.push({id:"e"+Date.now()+Math.random().toString(36).slice(2,6),date:state.current.date,shift:state.current.shift,type,bedLabel:b.label,patient:b.patient||"",ts:Date.now()});
+  const event={id:"e"+Date.now()+Math.random().toString(36).slice(2,6),date:state.current.date,shift:state.current.shift,type,bedLabel:b.label,patient:b.patient||"",hn:b.hn||"",actor:currentActor(),ts:Date.now()};
+  state.events.push(event);audit("สร้างเหตุการณ์",{type,bedLabel:b.label,patient:b.patient||""});
   return true;
 }
 function tallyEvents(date,shift){
   const t={admitNew:0,admitTransfer:0,admitRefer:0,dcAllow:0,referBack:0,referOut:0,dead:0,icu:0,dept:0,or:0,other:0};
-  (state.events||[]).forEach(e=>{if(e.date===date&&e.shift===shift&&t[e.type]!==undefined)t[e.type]++;});
+  (state.events||[]).forEach(e=>{if(!e.voided&&e.date===date&&e.shift===shift&&t[e.type]!==undefined)t[e.type]++;});
   return t;
 }
 function renderCurrentBar(){
   document.getElementById("curDate").value=state.current.date;
   document.getElementById("curShift").value=state.current.shift;
-  const n=(state.events||[]).filter(e=>e.date===state.current.date&&e.shift===state.current.shift).length;
+  document.getElementById("curActor").value=state.current.actor||"";
+  const n=(state.events||[]).filter(e=>!e.voided&&e.date===state.current.date&&e.shift===state.current.shift).length;
   document.getElementById("curEventCount").textContent=n?`(${n} เหตุการณ์ในเวรนี้)`:"(ยังไม่มีเหตุการณ์)";
 }
 document.getElementById("curDate").addEventListener("change",e=>{state.current.date=e.target.value;save();renderCurrentBar();});
 document.getElementById("curShift").addEventListener("change",e=>{state.current.shift=e.target.value;save();renderCurrentBar();});
+document.getElementById("curActor").addEventListener("change",e=>{state.current.actor=e.target.value.trim();save();});
 let _toastEl;
 function toast(msg){if(!_toastEl){_toastEl=document.createElement("div");_toastEl.style.cssText="position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#0ea5e9;color:#04222f;padding:10px 16px;border-radius:10px;font-weight:700;z-index:200;box-shadow:0 4px 14px #0007;transition:opacity .3s";document.body.appendChild(_toastEl);}_toastEl.textContent=msg;_toastEl.style.opacity="1";clearTimeout(_toastEl._t);_toastEl._t=setTimeout(()=>_toastEl.style.opacity="0",1700);}
 
@@ -425,7 +522,7 @@ function renderHint(){
 /* ---------- board: summary ---------- */
 function renderSummary(){
   const beds=allBeds(),total=beds.length;let occ=0,saiA=0,saiB=0,iso=0;
-  beds.forEach(b=>{const has=b.patient||b.doctorId||b.acuity;if(has){occ++;if(b.iso)iso++;const d=docById(b.doctorId);if(d){if(d.sai==="A")saiA++;else saiB++;}}});
+  state.sections.forEach(sec=>sec.beds.forEach(b=>{const has=b.patient||b.doctorId||b.acuity;if(has){occ++;if(sec.type==="isolation")iso++;const d=docById(b.doctorId);if(d){if(d.sai==="A")saiA++;else saiB++;}}}));
   const el=document.getElementById("summary");el.innerHTML="";
   [{k:"เตียงทั้งหมด",v:total,s:""},{k:"มีผู้ป่วย",v:occ,s:`ว่าง ${total-occ}`},
    {k:"สามัญ / แยก",v:`${occ-iso}/${iso}`,s:""},
@@ -466,12 +563,16 @@ function renderMap(){
         <div class="lbl">${escapeHtml(b.label)}</div>
         <div class="doc">${d?escapeHtml(d.name):(has?"(ไม่ระบุแพทย์)":"— ว่าง —")}</div>
         ${b.patient?`<div class="pt">${escapeHtml(b.patient)}</div>`:""}
+        ${b.hn?`<div class="note">HN ${escapeHtml(b.hn)}</div>`:""}
         ${b.note?`<div class="note">${escapeHtml(b.note)}</div>`:""}
-        <div class="badges">${b.iso?'<span class="iso">แยก</span>':''}${b.acuity?`<span class="acu">${b.acuity}</span>`:''}<span class="i">✎</span></div>
+        <div class="badges">${sec.type==="isolation"?'<span class="iso">ห้องแยก</span>':''}${b.patientIso?'<span class="iso">ต้องแยก</span>':''}${b.acuity?`<span class="acu">${b.acuity}</span>`:''}<span class="i">✎</span></div>
         <button class="rm-bed" title="ลบเตียง">×</button>`;
       cell.querySelector(".rm-bed").onclick=(e)=>{e.stopPropagation();if(confirm("ลบ "+sec.name+" เตียง "+b.label+" ?")){sec.beds=sec.beds.filter(x=>x.id!==b.id);save();renderAll();}};
       cell.querySelector(".i").onclick=(e)=>{e.stopPropagation();openBed(sec,b);};
-      cell.onclick=()=>{if(document.body.classList.contains("editing")){openBed(sec,b);return;}if(activeDoc){b.doctorId=b.doctorId===activeDoc?null:activeDoc;save();renderAll();}else openBed(sec,b);};
+      cell.onclick=()=>{if(document.body.classList.contains("editing")){openBed(sec,b);return;}if(activeDoc){
+        if(!has){openBed(sec,b);selDoc(activeDoc);toast("เลือกผู้ป่วยแล้วกด “บันทึกการรับเข้า” เพื่อให้นับยอด");return;}
+        b.doctorId=b.doctorId===activeDoc?null:activeDoc;audit("เปลี่ยนแพทย์เจ้าของไข้",{bedLabel:b.label,doctorId:b.doctorId});save();renderAll();
+      }else openBed(sec,b);};
       grid.appendChild(cell);
     });
     wrap.appendChild(grid);map.appendChild(wrap);
@@ -483,8 +584,9 @@ function openBed(sec,b){
   document.getElementById("bedTitle").textContent=sec.name+" · เตียง "+b.label;
   document.getElementById("bedLabel").value=b.label;
   document.getElementById("bedPatient").value=b.patient||"";
+  document.getElementById("bedHn").value=b.hn||"";
   document.getElementById("bedNote").value=b.note||"";
-  document.getElementById("bedIso").checked=!!b.iso;
+  document.getElementById("bedPatientIso").checked=!!b.patientIso;
   document.querySelectorAll("#bedAcu .o").forEach(o=>o.classList.toggle("sel",Number(o.dataset.a)===(b.acuity||0)));
   const pick=document.getElementById("bedDocPick");pick.innerHTML="";
   const none=document.createElement("div");none.className="p"+(b.doctorId?"":" sel");none.dataset.id="";none.innerHTML=`<span class="dot" style="background:#475569"></span>ว่าง`;none.onclick=()=>selDoc("");pick.appendChild(none);
@@ -501,8 +603,9 @@ function applyFields(b){
   const sel=document.querySelector("#bedDocPick .p.sel");
   b.doctorId=sel&&sel.dataset.id?sel.dataset.id:null;
   b.patient=document.getElementById("bedPatient").value.trim();
+  b.hn=document.getElementById("bedHn").value.trim();
   b.note=document.getElementById("bedNote").value.trim();
-  b.iso=document.getElementById("bedIso").checked;
+  b.patientIso=document.getElementById("bedPatientIso").checked;
   const acuSel=document.querySelector("#bedAcu .o.sel");b.acuity=acuSel?Number(acuSel.dataset.a):0;
 }
 function selDoc(id){document.querySelectorAll("#bedDocPick .p").forEach(p=>p.classList.toggle("sel",p.dataset.id===id));}
@@ -516,6 +619,7 @@ document.getElementById("btnAdmit").onclick=()=>{
   const docSel=document.querySelector("#bedDocPick .p.sel");
   if(!patient&&!(docSel&&docSel.dataset.id)){alert("ใส่ชื่อผู้ป่วยหรือเลือกแพทย์ก่อนบันทึกการรับเข้า");return;}
   if(!state.current||!state.current.date){alert("ตั้งวันที่เวรที่กำลังบันทึกก่อน (แถบบนหน้าผังเตียง)");return;}
+  if(!confirmCurrent("ยืนยันการรับผู้ป่วย"))return;
   applyFields(b);
   const t=document.querySelector("#admitType .o.sel");const type=t?t.dataset.t:"admitNew";
   if(logEvent(type,b)){save();closeBed();renderAll();toast("รับเข้า: "+EV_LABEL[type]);}
@@ -524,14 +628,16 @@ document.getElementById("btnDischarge").onclick=()=>{
   if(!curBed)return;const b=curBed.b;
   b.patient=document.getElementById("bedPatient").value.trim()||b.patient;
   const t=document.querySelector("#dischargeType .o.sel");const type=t?t.dataset.t:"dcAllow";
-  if(logEvent(type,b)){b.doctorId=null;b.patient="";b.note="";b.acuity=0;b.iso=(curBed.sec.type==="isolation");save();closeBed();renderAll();toast("จำหน่าย: "+EV_LABEL[type]);}
+  if(!confirmCurrent("ยืนยันการจำหน่าย / ส่งต่อ"))return;
+  if(logEvent(type,b)){b.doctorId=null;b.patient="";b.hn="";b.note="";b.acuity=0;b.patientIso=false;save();closeBed();renderAll();toast("จำหน่าย: "+EV_LABEL[type]);}
 };
 document.getElementById("btnOR").onclick=()=>{
   if(!curBed)return;const b=curBed.b;b.patient=document.getElementById("bedPatient").value.trim()||b.patient;
+  if(!confirmCurrent("ยืนยันการส่ง OR"))return;
   if(logEvent("or",b)){applyFields(b);save();closeBed();renderAll();toast("ส่ง OR แล้ว");}
 };
 function closeBed(){document.getElementById("bedOverlay").classList.remove("open");curBed=null;}
-function swapBedData(a,c){["doctorId","patient","note","acuity","iso"].forEach(k=>{const t=a[k];a[k]=c[k];c[k]=t;});}
+function swapBedData(a,c){["doctorId","patient","hn","note","acuity","patientIso"].forEach(k=>{const t=a[k];a[k]=c[k];c[k]=t;});}
 document.getElementById("bedSave").onclick=()=>{
   if(!curBed)return;const {b}=curBed;
   applyFields(b);
@@ -541,10 +647,11 @@ document.getElementById("bedSave").onclick=()=>{
     const dest=allBeds().find(x=>x.label===target);
     if(!dest){alert('ไม่พบเตียงเลข "'+target+'"');return;}
     swapBedData(b,dest);
+    audit("ย้าย/สลับผู้ป่วย",{from:b.label,to:dest.label});
   }
-  save();closeBed();renderAll();
+  audit("บันทึกข้อมูลเตียง (ไม่นับเหตุการณ์)",{bedLabel:b.label});save();closeBed();renderAll();
 };
-document.getElementById("bedClear").onclick=()=>{if(!curBed)return;const b=curBed.b;b.doctorId=null;b.patient="";b.note="";b.acuity=0;b.iso=(curBed.sec.type==="isolation");save();closeBed();renderAll();};
+document.getElementById("bedClear").onclick=()=>{if(!curBed)return;const b=curBed.b;if(!confirm("ล้างข้อมูลเตียงโดยไม่นับเป็นการจำหน่ายใช่หรือไม่?"))return;audit("ล้างข้อมูลเตียง (ไม่นับเหตุการณ์)",{bedLabel:b.label});b.doctorId=null;b.patient="";b.hn="";b.note="";b.acuity=0;b.patientIso=false;save();closeBed();renderAll();};
 document.getElementById("bedCancel").onclick=closeBed;
 document.getElementById("bedOverlay").onclick=(e)=>{if(e.target.id==="bedOverlay")closeBed();};
 
@@ -566,13 +673,26 @@ document.getElementById("docOverlay").onclick=(e)=>{if(e.target.id==="docOverlay
 
 /* ---------- header buttons ---------- */
 document.getElementById("btnEdit").onclick=()=>{document.body.classList.toggle("editing");const on=document.body.classList.contains("editing");document.getElementById("btnEdit").textContent=on?"✓ เสร็จการแก้ไข":"✏️ แก้ไขผังเตียง";};
-document.getElementById("btnBackup").onclick=()=>document.getElementById("bkOverlay").classList.add("open");
+function renderAudit(){
+  const box=document.getElementById("auditLog"),items=(state.audit||[]).slice(-20).reverse();
+  if(!items.length){box.innerHTML='<div class="row" style="color:var(--muted)">ยังไม่มีประวัติการแก้ไข</div>';return;}
+  box.innerHTML=items.map(a=>`<div class="row"><span style="flex:1">${escapeHtml(a.action)}</span><span style="color:var(--muted)">${escapeHtml(a.actor||"ไม่ระบุ")}</span><span style="color:var(--muted)">${new Date(a.ts).toLocaleString("th-TH")}</span></div>`).join("");
+}
+document.getElementById("btnBackup").onclick=()=>{renderAudit();document.getElementById("bkOverlay").classList.add("open");};
 document.getElementById("bkClose").onclick=()=>document.getElementById("bkOverlay").classList.remove("open");
 document.getElementById("bkOverlay").onclick=(e)=>{if(e.target.id==="bkOverlay")e.currentTarget.classList.remove("open");};
 document.getElementById("bkExport").onclick=()=>{const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="ward-backup-"+new Date().toISOString().slice(0,10)+".json";a.click();};
 document.getElementById("bkImport").onclick=()=>document.getElementById("bkFile").click();
 document.getElementById("bkFile").onchange=(e)=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const s=JSON.parse(r.result);if(s.doctors&&s.sections){state=normalize(s);save();renderAll();_repInit=false;renderReportTab();alert("กู้คืนสำเร็จ");document.getElementById("bkOverlay").classList.remove("open");}else alert("ไฟล์ไม่ถูกต้อง");}catch(err){alert("อ่านไฟล์ไม่ได้");}};r.readAsText(f);};
-document.getElementById("bkClearAssign").onclick=()=>{if(confirm("ล้างผู้ป่วย/แพทย์/acuity ทุกเตียง? (โครงสร้างเตียงคงเดิม)")){state.sections.forEach(sec=>sec.beds.forEach(b=>{b.doctorId=null;b.patient="";b.note="";b.acuity=0;b.iso=(sec.type==="isolation");}));save();renderAll();}};
+document.getElementById("bkClearAssign").onclick=()=>{if(confirm("ล้างผู้ป่วย/แพทย์/acuity ทุกเตียง? (โครงสร้างเตียงคงเดิม)")){audit("ล้างข้อมูลผู้ป่วยทุกเตียง",{});state.sections.forEach(sec=>sec.beds.forEach(b=>{b.doctorId=null;b.patient="";b.hn="";b.note="";b.acuity=0;b.patientIso=false;}));save();renderAll();renderAudit();}};
+
+/* ---------- cloud sync ---------- */
+document.getElementById("btnSyncAuth").onclick=()=>{updateSyncUI();document.getElementById("syncOverlay").classList.add("open");};
+document.getElementById("syncClose").onclick=()=>document.getElementById("syncOverlay").classList.remove("open");
+document.getElementById("syncClose2").onclick=()=>document.getElementById("syncOverlay").classList.remove("open");
+document.getElementById("syncOverlay").onclick=e=>{if(e.target.id==="syncOverlay")e.currentTarget.classList.remove("open");};
+document.getElementById("btnSyncSignIn").onclick=sendSyncLink;
+document.getElementById("btnSyncSignOut").onclick=async()=>{if(supabaseClient)await supabaseClient.auth.signOut();cloudReady=false;cloudVersion=null;cloudUser=null;if(cloudChannel)supabaseClient.removeChannel(cloudChannel);cloudChannel=null;setSyncStatus("☁️ ออกจาก Sync แล้ว");updateSyncUI();document.getElementById("syncOverlay").classList.remove("open");};
 
 /* ---------- tabs ---------- */
 document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
@@ -583,8 +703,8 @@ document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
 
 /* =================== REPORT =================== */
 function boardSnapshot(){
-  const beds=allBeds();const ac={5:0,4:0,3:0,2:0,1:0};let iso=0,gen=0,occ=0;
-  beds.forEach(b=>{const has=b.patient||b.doctorId||b.acuity;if(!has)return;occ++;if(b.iso)iso++;else gen++;if(b.acuity)ac[b.acuity]++;});
+  const ac={5:0,4:0,3:0,2:0,1:0};let iso=0,gen=0,occ=0;
+  state.sections.forEach(sec=>sec.beds.forEach(b=>{const has=b.patient||b.doctorId||b.acuity;if(!has)return;occ++;if(sec.type==="isolation")iso++;else gen++;if(b.acuity)ac[b.acuity]++;}));
   return {ac,iso,gen,occ};
 }
 function repKey(){return document.getElementById("repDate").value+"|"+document.getElementById("repShift").value;}
@@ -611,7 +731,8 @@ function readForm(){
   };
 }
 function computed(r){
-  const O=r.carry+r.anew+r.tin+r.rin-r.dc-r.rb-r.ro-r.dead-r.icu-r.dept;
+  // หนี/ปฏิเสธล้างเตียง จึงต้องหักจากยอดสามัญเช่นเดียวกับการจำหน่ายประเภทอื่น
+  const O=r.carry+r.anew+r.tin+r.rin-r.dc-r.rb-r.ro-r.dead-r.icu-r.dept-r.other;
   const Q=O+r.iso;
   const AC=r.ac5*ACU_W[5]+r.ac4*ACU_W[4]+r.ac3*ACU_W[3]+r.ac2*ACU_W[2]+r.ac1*ACU_W[1];
   const AD=r.admin>0?AC/3/r.admin*100:0;
@@ -653,13 +774,18 @@ function fillFromBoard(){
 }
 function renderEventLog(){
   const date=document.getElementById("repDate").value,sh=document.getElementById("repShift").value;
-  const evs=(state.events||[]).filter(e=>e.date===date&&e.shift===sh).sort((a,b)=>b.ts-a.ts);
+  const all=(state.events||[]).filter(e=>e.date===date&&e.shift===sh),evs=all.filter(e=>!e.voided).sort((a,b)=>b.ts-a.ts);
   document.getElementById("evCount").textContent=evs.length?`(${evs.length})`:"(ยังไม่มี)";
   const box=document.getElementById("evLog");
-  if(!evs.length){box.innerHTML='<div class="row" style="color:var(--muted)">ยังไม่มีเหตุการณ์ในเวรนี้ — ไปที่หน้าผังเตียง กดรับ/จำหน่าย/ส่ง OR ที่เตียง จะถูกนับมาที่นี่เอง</div>';return;}
+  if(!evs.length){box.innerHTML='<div class="row" style="color:var(--muted)">ยังไม่มีเหตุการณ์ที่มีผลในเวรนี้ — ไปที่หน้าผังเตียง กดรับ/จำหน่าย/ส่ง OR ที่เตียง จะถูกนับมาที่นี่เอง</div>';return;}
   box.innerHTML=evs.map(e=>{const tm=new Date(e.ts).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});
-    return `<div class="row"><span class="t ${evClass(e.type)}">${EV_LABEL[e.type]}</span><span>เตียง ${escapeHtml(e.bedLabel)}</span><span style="color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(e.patient||"")}</span><span style="color:var(--muted)">${tm}</span><button class="sm" data-ev="${e.id}">🗑</button></div>`;}).join("");
-  box.querySelectorAll("button[data-ev]").forEach(btn=>btn.onclick=()=>{if(confirm("ลบเหตุการณ์นี้? (รายงานจะนับใหม่)")){state.events=state.events.filter(x=>x.id!==btn.dataset.ev);save();refreshTallies();updateCalc();renderEventLog();renderCurrentBar();}});
+    return `<div class="row"><span class="t ${evClass(e.type)}">${EV_LABEL[e.type]}</span><span>เตียง ${escapeHtml(e.bedLabel)}</span><span style="color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(e.patient||"")}</span><span style="color:var(--muted)">${tm}</span><button class="sm" data-ev="${e.id}">ยกเลิก</button></div>`;}).join("");
+  box.querySelectorAll("button[data-ev]").forEach(btn=>btn.onclick=()=>{
+    const reason=prompt("เหตุผลที่ยกเลิกเหตุการณ์นี้ (จะเก็บไว้ในประวัติ)");if(reason===null)return;
+    const event=state.events.find(x=>x.id===btn.dataset.ev);if(!event)return;
+    event.voided=true;event.voidedAt=Date.now();event.voidedBy=currentActor();event.voidReason=reason.trim();audit("ยกเลิกเหตุการณ์",{eventId:event.id,reason:event.voidReason});
+    save();refreshTallies();updateCalc();renderEventLog();renderCurrentBar();
+  });
 }
 function loadRecordToForm(){
   const rec=state.reports[repKey()];
@@ -697,7 +823,9 @@ document.getElementById("repFromBoard").onclick=fillFromBoard;
 document.getElementById("repClear").onclick=()=>clearForm(true);
 document.getElementById("repSave").onclick=()=>{
   const r=readForm();if(!r.date){alert("เลือกวันที่ก่อน");return;}
-  state.reports[r.date+"|"+r.shift]=r;save();renderHistory();
+  const key=r.date+"|"+r.shift,old=state.reports[key];
+  r.createdAt=old&&old.createdAt||Date.now();r.createdBy=old&&old.createdBy||currentActor();r.updatedAt=Date.now();r.updatedBy=currentActor();
+  audit(old?"แก้ไขรายงานเวร":"บันทึกรายงานเวร",{key,previous:old||null});state.reports[key]=r;save();renderHistory();
   const btn=document.getElementById("repSave");btn.textContent="✓ บันทึกแล้ว";setTimeout(()=>btn.textContent="💾 บันทึกเวรนี้",1200);
 };
 function renderHistory(){
@@ -708,7 +836,7 @@ function renderHistory(){
   let html="<tr>"+H.map(h=>`<th>${h}</th>`).join("")+"</tr>";
   keys.forEach(k=>{
     const r=state.reports[k],c=computed(r);
-    const admits=r.anew+r.tin+r.rin,dc=r.dc+r.rb+r.ro+r.dead+r.icu+r.dept;
+    const admits=r.anew+r.tin+r.rin,dc=r.dc+r.rb+r.ro+r.dead+r.icu+r.dept+r.other;
     const prodCol=c.AD>=100?"#22c55e":(c.AD>0?"#f59e0b":"#94a3b8");
     html+=`<tr>
       <td>${r.date}</td><td><b>${r.shift}</b></td><td>${r.carry}</td><td>${admits}</td><td>${dc}</td><td>${r.or}</td>
@@ -717,7 +845,7 @@ function renderHistory(){
       <td><button class="sm" data-k="${k}">🗑</button></td></tr>`;
   });
   t.innerHTML=html;
-  t.querySelectorAll("button[data-k]").forEach(b=>b.onclick=()=>{if(confirm("ลบเวรนี้?")){delete state.reports[b.dataset.k];save();renderHistory();}});
+  t.querySelectorAll("button[data-k]").forEach(b=>b.onclick=()=>{if(confirm("ลบรายงานเวรนี้? ข้อมูลเดิมจะถูกเก็บในประวัติการแก้ไข")){const old=state.reports[b.dataset.k];audit("ลบรายงานเวร",{key:b.dataset.k,previous:old});delete state.reports[b.dataset.k];save();renderHistory();}});
 }
 
 /* ---------- Excel export (matches template layout + live formulas) ---------- */
@@ -758,7 +886,7 @@ function exportExcel(scope){
     set(2, r.carry); set(3, r.anew); set(4, r.tin); set(5, r.rin);
     set(6, r.dc); set(7, r.rb); set(8, r.ro); set(9, r.dead); set(10, r.icu); set(11, r.dept);
     set(12, r.or); set(13, r.other);
-    set(14, cc.O, `C${R}+D${R}+E${R}+F${R}-G${R}-H${R}-I${R}-J${R}-K${R}-L${R}`); // O
+    set(14, cc.O, `C${R}+D${R}+E${R}+F${R}-G${R}-H${R}-I${R}-J${R}-K${R}-L${R}-N${R}`); // O
     set(15, r.iso); // P
     set(16, cc.Q, `O${R}+P${R}`); // Q
     set(17, r.ac5); set(18, r.ac5*12,  `R${R}*12`);
@@ -807,6 +935,9 @@ document.getElementById("repExportAll").onclick=()=>exportExcel("all");
 /* ---------- init ---------- */
 function renderAll(){renderDocs();renderHint();renderSummary();renderMap();renderCurrentBar();}
 state=load();renderAll();
+connectCloud().then(()=>{
+  if(supabaseClient)supabaseClient.auth.onAuthStateChange((_event,session)=>{cloudUser=session&&session.user||null;cloudReady=false;cloudVersion=null;updateSyncUI();if(cloudUser)setTimeout(loadCloud,0);else setSyncStatus("☁️ เข้าสู่ระบบเพื่อ Sync");});
+});
 </script>
 </body>
 </html>

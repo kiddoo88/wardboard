@@ -94,6 +94,9 @@
   .admit-day{position:absolute;right:7px;bottom:6px;font-size:11px;font-weight:900;background:rgba(15,23,42,.72);color:#fff;border-radius:999px;padding:2px 7px}
   body.editing .admit-day{right:33px}
   body.viewer .docs,body.viewer #map .bed,body.viewer #btnDocs,body.viewer #btnEdit,body.viewer #btnBackup,body.viewer #repSave,body.viewer #repClear{pointer-events:none;opacity:.55}
+  body.access-pending .tabs,body.access-pending .wrap,body.access-pending header > button:not(#btnSyncAuth){pointer-events:none;opacity:.42;filter:saturate(.55)}
+  .access-lock{display:none;position:sticky;top:58px;z-index:19;max-width:1200px;margin:10px auto 0;padding:10px 16px;border:1px solid #b45309;border-radius:10px;background:#451a03;color:#fef3c7;font-size:13px}
+  body.access-pending .access-lock{display:block}
   #btnOR.active{background:#166534;border-color:#22c55e;color:#dcfce7;font-weight:800}
   .rm-bed{position:absolute;bottom:5px;right:5px;background:#dc2626;color:#fff;border:none;
     border-radius:6px;width:22px;height:22px;font-size:14px;line-height:1;cursor:pointer;display:none;z-index:2}
@@ -123,6 +126,13 @@
   .mgr-row input[type=text]{flex:1;padding:7px 9px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--text)}
   .mgr-row input[type=color]{width:38px;height:34px;border:none;background:none;padding:0;border-radius:6px}
   .mgr-row .sai{font-size:11px;color:var(--muted);width:44px}
+  .member-access{display:none;margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+  .member-access h4{margin:0 0 4px;font-size:14px}
+  .member-access p{margin:0 0 10px;color:var(--muted);font-size:12px;line-height:1.45}
+  .member-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+  .member-row:first-child{border-top:0}
+  .member-email{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+  .member-role{width:130px;padding:7px 8px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-size:13px}
 
   /* report */
   .rep-top{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:14px}
@@ -162,6 +172,7 @@
   <span class="cnt" id="syncStatus">☁️ ยังไม่ได้เชื่อม</span>
   <button class="ghost sm" id="btnSyncAuth">☁️ เข้าสู่ระบบ Sync</button>
 </header>
+<div class="access-lock">บัญชีนี้กำลังรอการอนุมัติสิทธิ์ — ยังไม่สามารถแก้ไขหรือบันทึกข้อมูลได้ กรุณารอผู้ดูแลเลือกเป็น editor หรือ viewer</div>
 
 <div class="tabs">
   <div class="tab active" data-view="board">ผังเตียง</div>
@@ -342,6 +353,11 @@
     <p id="syncHelp" style="color:var(--muted);font-size:13px;line-height:1.5">เข้าสู่ระบบด้วย Google account แล้วผู้ดูแลจะกำหนดสิทธิ์ให้เป็น editor หรือ viewer</p>
     <div class="modal-actions" id="syncSignInActions"><button class="primary" id="btnGoogleSignIn">G เข้าสู่ระบบด้วย Google</button><div class="spacer"></div><button id="syncClose">ปิด</button></div>
     <div class="modal-actions" id="syncSignOutActions" style="display:none"><button class="ghost" id="btnSyncSignOut">ออกจากระบบ</button><div class="spacer"></div><button id="syncClose2">ปิด</button></div>
+    <div class="member-access" id="memberAccessPanel">
+      <h4>จัดการสิทธิ์ผู้ใช้</h4>
+      <p>บัญชีใหม่จะอยู่ในสถานะรออนุมัติ เลือก editor หรือ viewer เพื่อให้เริ่มใช้งานได้ทันที</p>
+      <div id="memberAccessList"></div>
+    </div>
   </div>
 </div>
 
@@ -408,7 +424,7 @@ function migrate(s){
 }
 
 let state,activeDoc=null,curBed=null;
-let supabaseClient=null,cloudReady=false,cloudVersion=null,cloudBoardId=null,cloudSnapshot=null,cloudUser=null,cloudRole=null,cloudChannel=null,cloudTimer=null,applyingRemote=false,auditHistoryRows=[];
+let supabaseClient=null,cloudReady=false,cloudVersion=null,cloudBoardId=null,cloudSnapshot=null,cloudUser=null,cloudRole=null,cloudChannel=null,cloudTimer=null,applyingRemote=false,auditHistoryRows=[],memberAccessRows=[];
 
 function normalize(s){
   if(!s.reports)s.reports={};
@@ -428,19 +444,33 @@ function normalize(s){
 }
 function load(){try{const s=JSON.parse(localStorage.getItem(LS_KEY));if(s&&s.doctors&&s.sections)return normalize(s);}catch(e){}return defaultState();}
 function save(){
-  if(cloudReady&&cloudRole!=="editor"&&!applyingRemote){toast("บัญชีนี้เป็น viewer จึงแก้ไขข้อมูลไม่ได้");setTimeout(loadCloud,0);return;}
+  if(cloudUser&&(!cloudReady||cloudRole!=="editor")&&!applyingRemote){toast(cloudRole==="viewer"?"บัญชีนี้เป็น viewer จึงแก้ไขข้อมูลไม่ได้":"บัญชีนี้ยังรอการอนุมัติ จึงยังบันทึกข้อมูลไม่ได้");return;}
   try{localStorage.setItem(LS_KEY,JSON.stringify(state));}catch(e){}
   if(cloudReady&&!applyingRemote){clearTimeout(cloudTimer);cloudTimer=setTimeout(writeCloud,500);}
 }
 function setSyncStatus(text){const el=document.getElementById("syncStatus");if(el)el.textContent=text;}
+function isReadOnlyUser(){return !!cloudUser&&(!cloudReady||cloudRole!=="editor");}
+function setEditControlsLocked(){
+  const locked=isReadOnlyUser();
+  document.body.classList.toggle("readonly",locked);
+  document.body.classList.toggle("access-pending",locked&&cloudRole!=="viewer");
+  document.querySelectorAll("input,select,textarea,button").forEach(el=>{
+    if(el.closest("#syncOverlay")||el.id==="btnSyncAuth")return;
+    if(locked){if(!el.disabled){el.disabled=true;el.dataset.roleLock="1";}}
+    else if(el.dataset.roleLock){el.disabled=false;delete el.dataset.roleLock;}
+  });
+  if(locked)document.querySelectorAll(".overlay.open:not(#syncOverlay)").forEach(el=>el.classList.remove("open"));
+}
 function updateSyncUI(){
   const signed=!!cloudUser;
-  const roleLabel=cloudRole==="editor"?"แก้ไขได้":(cloudRole==="viewer"?"ดูอย่างเดียว":"กำลังตรวจสิทธิ์");
+  const roleLabel=cloudRole==="editor"?"แก้ไขได้":(cloudRole==="viewer"?"ดูอย่างเดียว":(cloudRole==="pending"?"รออนุมัติ":"ยังไม่มีสิทธิ์"));
   document.getElementById("btnSyncAuth").textContent=signed?`☁️ ${roleLabel}: ${cloudUser.email||"เชื่อมแล้ว"}`:"☁️ เข้าสู่ระบบ Sync";
   document.getElementById("syncSignInActions").style.display=signed?"none":"flex";
   document.getElementById("syncSignOutActions").style.display=signed?"flex":"none";
-  document.getElementById("syncHelp").textContent=signed?`เชื่อมด้วย ${cloudUser.email||"Google account นี้"} แล้ว — สิทธิ์: ${roleLabel}`:"เข้าสู่ระบบด้วย Google account แล้วผู้ดูแลจะกำหนดสิทธิ์ให้เป็น editor หรือ viewer";
+  document.getElementById("syncHelp").textContent=signed?(cloudRole==="pending"?`เชื่อมด้วย ${cloudUser.email||"Google account นี้"} แล้ว — กำลังรอผู้ดูแลเลือกสิทธิ์ editor หรือ viewer`:`เชื่อมด้วย ${cloudUser.email||"Google account นี้"} แล้ว — สิทธิ์: ${roleLabel}`):"เข้าสู่ระบบด้วย Google account แล้วผู้ดูแลจะกำหนดสิทธิ์ให้เป็น editor หรือ viewer";
   document.body.classList.toggle("viewer",cloudReady&&cloudRole==="viewer");
+  document.getElementById("memberAccessPanel").style.display=cloudReady&&cloudRole==="editor"?"block":"none";
+  setEditControlsLocked();
 }
 function cloudPayload(){const payload=JSON.parse(JSON.stringify(state));delete payload.audit;return payload;}
 function sameJson(a,b){return JSON.stringify(a)===JSON.stringify(b);}
@@ -466,14 +496,20 @@ function applyCloudState(data,version,boardId){
   renderAll();if(_repInit)renderReportTab();return true;
 }
 async function loadCloud(){
-  const {data,error}=await supabaseClient.from("ward_boards").select("id,data,version").eq("slug",CLOUD_BOARD_SLUG).maybeSingle();
-  if(error||!data){cloudReady=false;setSyncStatus("☁️ อีเมลนี้ยังไม่มีสิทธิ์ Sync");return;}
-  const {data:membership,error:membershipError}=await supabaseClient.from("ward_board_members").select("role").eq("board_id",data.id).maybeSingle();
-  if(membershipError||!membership){cloudReady=false;cloudRole=null;updateSyncUI();setSyncStatus("☁️ Google account นี้ยังไม่มีสิทธิ์ Sync");return;}
+  if(!supabaseClient||!cloudUser)return;
+  const {data:membership,error:membershipError}=await supabaseClient.from("ward_board_members").select("board_id,role").maybeSingle();
+  if(membershipError||!membership){cloudReady=false;cloudRole=null;cloudBoardId=null;updateSyncUI();setSyncStatus("☁️ Google account นี้ยังไม่มีสิทธิ์ Sync");return;}
   cloudRole=membership.role;
+  cloudBoardId=membership.board_id;
+  if(cloudRole!=="editor"&&cloudRole!=="viewer"){
+    cloudReady=false;cloudVersion=null;updateSyncUI();setSyncStatus("☁️ รอผู้ดูแลอนุมัติสิทธิ์");return;
+  }
+  const {data,error}=await supabaseClient.from("ward_boards").select("id,data,version").eq("id",membership.board_id).maybeSingle();
+  if(error||!data){cloudReady=false;updateSyncUI();setSyncStatus("☁️ โหลดข้อมูล Sync ไม่สำเร็จ");return;}
   cloudVersion=data.version;cloudBoardId=data.id;cloudReady=true;
   if(!applyCloudState(data.data,data.version,data.id)){cloudSnapshot={};writeCloud();}
   updateSyncUI();setSyncStatus("☁️ Sync realtime แล้ว");
+  if(document.getElementById("syncOverlay").classList.contains("open"))loadMemberAccess();
   if(cloudChannel)supabaseClient.removeChannel(cloudChannel);
   cloudChannel=supabaseClient.channel("ward-board-main")
     .on("postgres_changes",{event:"UPDATE",schema:"public",table:"ward_boards",filter:"slug=eq."+CLOUD_BOARD_SLUG},payload=>{
@@ -499,6 +535,29 @@ async function connectCloud(){
 async function signInWithGoogle(){
   const {error}=await supabaseClient.auth.signInWithOAuth({provider:"google",options:{redirectTo:location.origin+location.pathname}});
   if(error)alert("เข้าสู่ระบบ Google ไม่สำเร็จ: "+error.message);
+}
+function renderMemberAccess(){
+  const box=document.getElementById("memberAccessList");
+  if(!memberAccessRows.length){box.innerHTML='<div style="color:var(--muted);font-size:13px">ยังไม่มีผู้ใช้งาน</div>';return;}
+  box.innerHTML=memberAccessRows.map(row=>{
+    const pending=row.role==="pending";
+    return `<div class="member-row"><div class="member-email" title="${escapeHtml(row.email)}">${escapeHtml(row.email)}</div><select class="member-role" data-email="${escapeHtml(row.email)}">${pending?'<option value="" disabled selected>เลือกสิทธิ์</option>':''}<option value="editor" ${row.role==="editor"?"selected":""}>editor</option><option value="viewer" ${row.role==="viewer"?"selected":""}>viewer</option></select></div>`;
+  }).join("");
+  box.querySelectorAll(".member-role").forEach(select=>select.onchange=()=>updateMemberAccess(select.dataset.email,select));
+}
+async function loadMemberAccess(){
+  if(!cloudReady||cloudRole!=="editor"||!supabaseClient)return;
+  const {data,error}=await supabaseClient.rpc("list_ward_board_members");
+  if(error){document.getElementById("memberAccessList").innerHTML='<div style="color:#fca5a5;font-size:13px">โหลดรายชื่อไม่สำเร็จ</div>';return;}
+  memberAccessRows=data||[];renderMemberAccess();
+}
+async function updateMemberAccess(email,select){
+  const role=select.value;
+  if(role!=="editor"&&role!=="viewer")return;
+  select.disabled=true;
+  const {error}=await supabaseClient.rpc("set_ward_board_member_role",{p_email:email,p_role:role});
+  if(error){toast("เปลี่ยนสิทธิ์ไม่สำเร็จ: "+error.message);select.disabled=false;return;}
+  toast(`กำหนด ${email} เป็น ${role} แล้ว`);await loadMemberAccess();
 }
 function docById(id){return state.doctors.find(d=>d.id===id)||null;}
 function allBeds(){return state.sections.flatMap(s=>s.beds);}
@@ -793,12 +852,18 @@ document.getElementById("auditOverlay").onclick=e=>{if(e.target.id==="auditOverl
 document.getElementById("auditSearch").oninput=renderRemoteAudit;
 
 /* ---------- cloud sync ---------- */
-document.getElementById("btnSyncAuth").onclick=()=>{updateSyncUI();document.getElementById("syncOverlay").classList.add("open");};
+document.addEventListener("click",e=>{
+  if(!isReadOnlyUser())return;
+  const editable=e.target.closest("input,select,textarea,button,.bed,.doc-chip,.seg .o,.mgr-row");
+  if(!editable||editable.closest("#syncOverlay")||editable.id==="btnSyncAuth")return;
+  e.preventDefault();e.stopImmediatePropagation();toast(cloudRole==="viewer"?"บัญชีนี้เป็น viewer จึงแก้ไขข้อมูลไม่ได้":"บัญชีนี้ยังรอการอนุมัติ จึงยังแก้ไขข้อมูลไม่ได้");
+},true);
+document.getElementById("btnSyncAuth").onclick=()=>{updateSyncUI();document.getElementById("syncOverlay").classList.add("open");loadMemberAccess();};
 document.getElementById("syncClose").onclick=()=>document.getElementById("syncOverlay").classList.remove("open");
 document.getElementById("syncClose2").onclick=()=>document.getElementById("syncOverlay").classList.remove("open");
 document.getElementById("syncOverlay").onclick=e=>{if(e.target.id==="syncOverlay")e.currentTarget.classList.remove("open");};
 document.getElementById("btnGoogleSignIn").onclick=signInWithGoogle;
-document.getElementById("btnSyncSignOut").onclick=async()=>{if(supabaseClient)await supabaseClient.auth.signOut();cloudReady=false;cloudVersion=null;cloudBoardId=null;cloudSnapshot=null;cloudUser=null;cloudRole=null;auditHistoryRows=[];if(cloudChannel)supabaseClient.removeChannel(cloudChannel);cloudChannel=null;setSyncStatus("☁️ ออกจาก Sync แล้ว");updateSyncUI();document.getElementById("syncOverlay").classList.remove("open");};
+document.getElementById("btnSyncSignOut").onclick=async()=>{if(supabaseClient)await supabaseClient.auth.signOut();cloudReady=false;cloudVersion=null;cloudBoardId=null;cloudSnapshot=null;cloudUser=null;cloudRole=null;auditHistoryRows=[];memberAccessRows=[];if(cloudChannel)supabaseClient.removeChannel(cloudChannel);cloudChannel=null;setSyncStatus("☁️ ออกจาก Sync แล้ว");updateSyncUI();document.getElementById("syncOverlay").classList.remove("open");};
 
 /* ---------- tabs ---------- */
 document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
@@ -1042,7 +1107,7 @@ document.getElementById("repExportAll").onclick=()=>exportExcel("all");
 function renderAll(){renderDocs();renderHint();renderSummary();renderMap();renderCurrentBar();}
 state=load();renderAll();
 connectCloud().then(()=>{
-  if(supabaseClient)supabaseClient.auth.onAuthStateChange((_event,session)=>{cloudUser=session&&session.user||null;cloudReady=false;cloudVersion=null;cloudRole=null;updateSyncUI();if(cloudUser)setTimeout(loadCloud,0);else setSyncStatus("☁️ เข้าสู่ระบบเพื่อ Sync");});
+  if(supabaseClient)supabaseClient.auth.onAuthStateChange((_event,session)=>{cloudUser=session&&session.user||null;cloudReady=false;cloudVersion=null;cloudRole=null;memberAccessRows=[];updateSyncUI();if(cloudUser)setTimeout(loadCloud,0);else setSyncStatus("☁️ เข้าสู่ระบบเพื่อ Sync");});
 });
 </script>
 </body>

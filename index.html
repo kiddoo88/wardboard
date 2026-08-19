@@ -85,15 +85,14 @@
   .bed .note{font-size:12px;opacity:.9;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .bed .doc{font-size:12px;font-weight:600;opacity:.82;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .bed.empty .pt{color:var(--muted);font-weight:500;font-size:13px}
-  .bed .badges{position:absolute;top:5px;right:76px;display:flex;gap:4px;align-items:center;max-width:calc(100% - 142px);overflow:hidden}
+  .bed .badges{position:absolute;top:5px;right:6px;display:flex;gap:4px;align-items:center;max-width:calc(100% - 46px);overflow:hidden}
   .bed .acu{font-size:11px;font-weight:800;background:rgba(0,0,0,.35);border-radius:6px;padding:1px 6px}
   .bed .iso{font-size:10px;font-weight:700;background:#7c2d12;color:#fed7aa;border-radius:6px;padding:1px 5px}
   .bed .i{font-size:11px;opacity:.7;background:rgba(0,0,0,.25);border-radius:6px;padding:1px 5px}
   .bed.in-or{outline:3px solid #22c55e;outline-offset:3px}
   .or-status{font-size:10px;font-weight:800;background:#166534;color:#dcfce7;border-radius:6px;padding:2px 6px}
   .admit-day{position:absolute;right:7px;bottom:6px;font-size:11px;font-weight:900;background:rgba(15,23,42,.72);color:#fff;border-radius:999px;padding:2px 7px}
-  .edit-data{position:absolute;top:5px;right:5px;padding:3px 6px;font-size:10px;line-height:1.15;border-radius:6px;background:rgba(15,23,42,.58);border-color:rgba(226,232,240,.38);color:inherit;opacity:.72;z-index:3}
-  .edit-data:hover{opacity:1;background:rgba(15,23,42,.82)}
+  #bedClinicalFields.readonly #bedDocPick .p,#bedClinicalFields.readonly #bedAcu .o{pointer-events:none;opacity:.55}
   body.editing .admit-day{right:33px}
   body.viewer .docs,body.viewer #map .bed,body.viewer #btnDocs,body.viewer #btnEdit,body.viewer #btnBackup,body.viewer #repSave,body.viewer #repClear{pointer-events:none;opacity:.55}
   body.access-pending .tabs,body.access-pending .wrap,body.access-pending header > button:not(#btnSyncAuth){pointer-events:none;opacity:.42;filter:saturate(.55)}
@@ -319,6 +318,7 @@
 
     <div class="modal-actions">
       <button id="bedClear" title="ล้างข้อมูลโดยไม่นับเป็นการจำหน่าย (ใช้ตอนตั้งค่า/แก้ผิด)">ล้าง (ไม่นับ)</button>
+      <button id="bedEditData" class="ghost" style="display:none">✎ แก้ไขข้อมูล</button>
       <div class="spacer"></div>
       <button id="bedCancel">ยกเลิก</button>
       <button class="primary" id="bedSave">＋ บันทึกรับเข้า</button>
@@ -719,11 +719,9 @@ function renderMap(){
         <div class="note">${b.note?`Dx: ${escapeHtml(b.note)}`:""}${b.note&&b.hn?" · ":""}${b.hn?`HN ${escapeHtml(b.hn)}`:""}</div>
         <div class="doc">พ. ${d?escapeHtml(d.name):(has?"ไม่ระบุ":"—")}</div>
         <div class="badges">${b.inOR?'<span class="or-status">● OR</span>':''}${sec.type==="isolation"?'<span class="iso">ห้องแยก</span>':''}${b.patientIso?'<span class="iso">ต้องแยก</span>':''}${b.acuity?`<span class="acu">${b.acuity}</span>`:''}</div>
-        <button class="edit-data" title="แก้ไขข้อมูลเตียง">แก้ไขข้อมูล</button>
         ${day?`<div class="admit-day">Day ${day}</div>`:''}
         <button class="rm-bed" title="ลบเตียง">×</button>`;
       cell.querySelector(".rm-bed").onclick=(e)=>{e.stopPropagation();if(confirm("ลบ "+sec.name+" เตียง "+b.label+" ?")){sec.beds=sec.beds.filter(x=>x.id!==b.id);save();renderAll();}};
-      cell.querySelector(".edit-data").onclick=(e)=>{e.stopPropagation();openBed(sec,b,"clinical");};
       cell.onclick=()=>{if(document.body.classList.contains("editing")){openBed(sec,b,"layout");return;}if(activeDoc){
         if(!has){openBed(sec,b);selDoc(activeDoc);toast("เลือกผู้ป่วยแล้วกด “+ บันทึกรับเข้า” เพื่อให้นับยอด");return;}
         b.doctorId=b.doctorId===activeDoc?null:activeDoc;audit("เปลี่ยนแพทย์เจ้าของไข้",{bedLabel:b.label,doctorId:b.doctorId});save();renderAll();
@@ -753,17 +751,23 @@ function openBed(sec,b,forcedMode=""){
   const pick=document.getElementById("bedDocPick");pick.innerHTML="";
   const none=document.createElement("div");none.className="p"+(b.doctorId?"":" sel");none.dataset.id="";none.innerHTML=`<span class="dot" style="background:#475569"></span>ว่าง`;none.onclick=()=>selDoc("");pick.appendChild(none);
   state.doctors.forEach(d=>{const p=document.createElement("div");p.className="p"+(b.doctorId===d.id?" sel":"");p.dataset.id=d.id;p.innerHTML=`<span class="dot" style="background:${d.color}"></span>${escapeHtml(d.name)}`;p.onclick=()=>selDoc(d.id);pick.appendChild(p);});
+  setPatientDetailEditable(!occupied&&!layoutMode);
   // show admit vs discharge based on occupancy; reset default type selections
   document.getElementById("admitBox").style.display=occupied?"none":"block";
   document.getElementById("dischargeBox").style.display=occupied?"block":"none";
   document.getElementById("bedSave").textContent=layoutMode?"บันทึกชื่อเตียง":(occupied?"Discharge":"＋ บันทึกรับเข้า");
   document.getElementById("bedClear").style.display=layoutMode?"none":"block";
+  document.getElementById("bedEditData").style.display=occupied&&!layoutMode?"block":"none";
   const orBtn=document.getElementById("btnOR");orBtn.classList.toggle("active",!!b.inOR);orBtn.textContent=b.inOR?"✓ รับกลับจาก OR (เอาสถานะออก)":"🔪 ส่ง OR";
   document.querySelectorAll("#admitType .o").forEach((o,i)=>o.classList.toggle("sel",i===0));
   document.getElementById("transferAdmitDay").value=1;
   document.getElementById("transferAdmitDayField").style.display="none";
   document.querySelectorAll("#dischargeType .o").forEach((o,i)=>o.classList.toggle("sel",i===0));
   document.getElementById("bedOverlay").classList.add("open");
+}
+function setPatientDetailEditable(editable){
+  document.getElementById("bedClinicalFields").classList.toggle("readonly",!editable);
+  ["bedPatient","bedHn","bedNote","bedPatientIso"].forEach(id=>document.getElementById(id).disabled=!editable);
 }
 function applyFields(b){
   const sel=document.querySelector("#bedDocPick .p.sel");
@@ -798,6 +802,16 @@ function saveDischarge(){
   const t=document.querySelector("#dischargeType .o.sel");const type=t?t.dataset.t:"dcAllow";
   if(!confirmCurrent("ยืนยันการจำหน่าย / ส่งต่อ"))return;
   if(logEvent(type,b)){b.doctorId=null;b.patient="";b.hn="";b.note="";b.acuity=0;b.patientIso=false;b.inOR=false;b.admitDate="";save();closeBed();renderAll();toast("จำหน่าย: "+EV_LABEL[type]);}
+}
+function saveBedEdit(){
+  if(!curBed)return;
+  const b=curBed.b;
+  const patient=document.getElementById("bedPatient").value.trim();
+  const docSel=document.querySelector("#bedDocPick .p.sel");
+  if(!patient&&!(docSel&&docSel.dataset.id)){alert("หากต้องการล้างเตียง ให้ใช้ Discharge หรือ ล้าง (ไม่นับ)");return;}
+  applyFields(b);
+  audit("แก้ไขรายละเอียดผู้ป่วย",{bedLabel:b.label,patient:b.patient,hn:b.hn});
+  save();closeBed();renderAll();toast("บันทึกการแก้ไขแล้ว");
 }
 document.getElementById("btnOR").onclick=()=>{
   if(!curBed)return;const b=curBed.b;
@@ -835,11 +849,21 @@ document.getElementById("btnMoveBed").onclick=()=>{
 };
 document.getElementById("bedSave").onclick=()=>{
   if(!curBed)return;
-  if(curBed.mode==="layout")saveBedLabel();else if(curBed.mode==="admit")saveAdmission();else saveDischarge();
+  if(curBed.mode==="layout")saveBedLabel();else if(curBed.mode==="admit")saveAdmission();else if(curBed.mode==="edit")saveBedEdit();else saveDischarge();
+};
+document.getElementById("bedEditData").onclick=()=>{
+  if(!curBed||curBed.mode!=="discharge")return;
+  curBed.mode="edit";
+  setPatientDetailEditable(true);
+  document.getElementById("dischargeBox").style.display="none";
+  document.getElementById("bedSave").textContent="บันทึกการแก้ไข";
+  document.getElementById("bedEditData").style.display="none";
+  document.getElementById("bedClear").style.display="none";
 };
 document.getElementById("bedClear").onclick=()=>{if(!curBed)return;const b=curBed.b;if(!confirm("ล้างข้อมูลเตียงโดยไม่นับเป็นการจำหน่ายใช่หรือไม่?"))return;audit("ล้างข้อมูลเตียง (ไม่นับเหตุการณ์)",{bedLabel:b.label});b.doctorId=null;b.patient="";b.hn="";b.note="";b.acuity=0;b.patientIso=false;b.inOR=false;b.admitDate="";save();closeBed();renderAll();};
 document.getElementById("bedCancel").onclick=closeBed;
-document.getElementById("bedOverlay").onclick=(e)=>{if(e.target.id==="bedOverlay")closeBed();};
+// ป้องกันการเผลอกดพื้นที่มืดด้านนอกแล้วปิดหน้ารายละเอียดระหว่างแก้ข้อมูล
+document.getElementById("bedOverlay").onclick=()=>{};
 
 /* ---------- doctor manager ---------- */
 document.getElementById("btnDocs").onclick=()=>{

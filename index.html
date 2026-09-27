@@ -282,8 +282,8 @@
     <div class="field" id="bedLabelField" style="display:none"><label>ชื่อเตียง</label><input type="text" id="bedLabel" placeholder="เช่น แยก 1/1"></div>
     <div id="bedClinicalFields">
     <div class="field" id="moveBedField">
-      <label>ย้าย/สลับผู้ป่วยไปเตียงเลขที่</label>
-      <div style="display:flex;gap:8px"><input type="text" id="bedMoveTarget" inputmode="numeric" style="flex:1"><button id="btnMoveBed">⇄ ย้าย</button></div>
+      <label>ย้าย/สลับผู้ป่วยไปเตียง</label>
+      <div style="display:flex;gap:8px"><select id="bedMoveTarget" style="flex:1"><option value="">เลือกเตียงปลายทาง</option></select><button id="btnMoveBed">⇄ ย้าย</button></div>
       <div class="auto-tag" style="margin-top:4px">ปลายทางว่าง = ย้ายข้อมูล · มีผู้ป่วย = สลับข้อมูล โดยตำแหน่งเตียงคงเดิม</div>
     </div>
     <div class="field"><label>แพทย์เจ้าของไข้</label><div class="doc-pick" id="bedDocPick"></div></div>
@@ -741,7 +741,8 @@ function openBed(sec,b,forcedMode=""){
   document.getElementById("bedLabelField").style.display=layoutMode?"block":"none";
   document.getElementById("bedClinicalFields").style.display=layoutMode?"none":"block";
   document.getElementById("bedLabel").value=b.label;
-  document.getElementById("bedMoveTarget").value=b.label;
+  const moveTarget=document.getElementById("bedMoveTarget");
+  moveTarget.innerHTML='<option value="">เลือกเตียงปลายทาง</option>'+allBeds().filter(x=>x.id!==b.id).map(x=>`<option value="${escapeHtml(x.label)}">เตียง ${escapeHtml(x.label)}</option>`).join("");
   document.getElementById("moveBedField").style.display=occupied?"block":"none";
   document.getElementById("bedPatient").value=b.patient||"";
   document.getElementById("bedHn").value=b.hn||"";
